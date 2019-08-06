@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block body %}
+
+    <p>Here are the scopes you selected. Please click the button below to create a token with these scopes.</p>
+    <ul>
+        {% for scope in scopes %}
+            <li>{{ scope }}</li>
+        {% endfor %}
+    </ul>
+    <a class="btn btn-outline-primary" href="{{ oauth_url }}">Add to Slack</a>    
+    <a class="btn btn-outline-secondary" href="/">Back</a>
+    
+{% endblock %}

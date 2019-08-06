@@ -1,0 +1,285 @@
+[{
+    "scope": "admin.users:write",
+    "enabled": false
+},
+{
+    "scope": "auditlogs:read",
+    "enabled": false
+},
+{
+    "scope": "calls:read",
+    "enabled": true
+},
+{
+    "scope": "calls:write",
+    "enabled": true
+},
+{
+    "scope": "channels:history",
+    "enabled": true
+},
+{
+    "scope": "channels:read",
+    "enabled": true
+},
+{
+    "scope": "channels:write",
+    "enabled": true
+},
+{
+    "scope": "chat:write",
+    "enabled": false
+},
+{
+    "scope": "chat:write:bot",
+    "enabled": true
+},
+{
+    "scope": "chat:write:user",
+    "enabled": true
+},
+{
+    "scope": "conversations.app_home:create",
+    "enabled": false
+},
+{
+    "scope": "conversations:history",
+    "enabled": false
+},
+{
+    "scope": "conversations:read",
+    "enabled": false
+},
+{
+    "scope": "conversations:write",
+    "enabled": false
+},
+{
+    "scope": "dnd:read",
+    "enabled": true
+},
+{
+    "scope": "dnd:write",
+    "enabled": true
+},
+{
+    "scope": "dnd:write:user",
+    "enabled": false
+},
+{
+    "scope": "emoji:read",
+    "enabled": true
+},
+{
+    "scope": "files:read",
+    "enabled": true
+},
+{
+    "scope": "files:write",
+    "enabled": false
+},
+{
+    "scope": "files:write:user",
+    "enabled": true
+},
+{
+    "scope": "groups:history",
+    "enabled": true
+},
+{
+    "scope": "groups:read",
+    "enabled": true
+},
+{
+    "scope": "groups:write",
+    "enabled": true
+},
+{
+    "scope": "identity.avatar:read:user",
+    "enabled": true
+},
+{
+    "scope": "identity.email:read:user",
+    "enabled": false
+},
+{
+    "scope": "identity.team:read:user",
+    "enabled": false
+},
+{
+    "scope": "identity:read:user",
+    "enabled": false
+},
+{
+    "scope": "im:history",
+    "enabled": true
+},
+{
+    "scope": "im:read",
+    "enabled": true
+},
+{
+    "scope": "im:write",
+    "enabled": true
+},
+{
+    "scope": "links:read",
+    "enabled": true
+},
+{
+    "scope": "links:write",
+    "enabled": true
+},
+{
+    "scope": "mpim:history",
+    "enabled": true
+},
+{
+    "scope": "mpim:read",
+    "enabled": true
+},
+{
+    "scope": "mpim:write",
+    "enabled": true
+},
+{
+    "scope": "pins:read",
+    "enabled": true
+},
+{
+    "scope": "pins:write",
+    "enabled": true
+},
+{
+    "scope": "reactions:read",
+    "enabled": true
+},
+{
+    "scope": "reactions:write",
+    "enabled": true
+},
+{
+    "scope": "reminders:read",
+    "enabled": true
+},
+{
+    "scope": "reminders:read:user",
+    "enabled": false
+},
+{
+    "scope": "reminders:write",
+    "enabled": true
+},
+{
+    "scope": "reminders:write:user",
+    "enabled": false
+},
+{
+    "scope": "remote_files:read",
+    "enabled": true
+},
+{
+    "scope": "remote_files:share",
+    "enabled": true
+},
+{
+    "scope": "remote_files:write",
+    "enabled": true
+},
+{
+    "scope": "search:read",
+    "enabled": true
+},
+{
+    "scope": "stars:read",
+    "enabled": true
+},
+{
+    "scope": "stars:write",
+    "enabled": true
+},
+{
+    "scope": "team:read",
+    "enabled": true
+},
+{
+    "scope": "usergroups:read",
+    "enabled": true
+},
+{
+    "scope": "usergroups:write",
+    "enabled": true
+},
+{
+    "scope": "users.profile:read",
+    "enabled": true
+},
+{
+    "scope": "users.profile:write",
+    "enabled": true
+},
+{
+    "scope": "users.profile:write:user",
+    "enabled": false
+},
+{
+    "scope": "users:read",
+    "enabled": true
+},
+{
+    "scope": "users:read.email",
+    "enabled": true
+},
+{
+    "scope": "users:write",
+    "enabled": true
+},
+{
+    "scope": "bot",
+    "enabled": false
+},
+{
+    "scope": "commands",
+    "enabled": false
+},
+{
+    "scope": "client",
+    "enabled": false
+},
+{
+    "scope": "identify",
+    "enabled": false
+},
+{
+    "scope": "identity.avatar",
+    "enabled": false
+},
+{
+    "scope": "identity.basic",
+    "enabled": false
+},
+{
+    "scope": "identity.email",
+    "enabled": false
+},
+{
+    "scope": "identity.team",
+    "enabled": false
+},
+{
+    "scope": "incoming-webhook",
+    "enabled": false
+},
+{
+    "scope": "post",
+    "enabled": false
+},
+{
+    "scope": "read",
+    "enabled": false
+},
+{
+    "scope": "tokens.basic",
+    "enabled": false
+}
+]
