@@ -1,0 +1,40 @@
+{% extends "slash_base.json.j2" %}
+
+{% block blocks %}
+[
+    {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": "{{ text }}"
+        }
+    },
+    {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "{{ create_token_text }}",
+                    "emoji": true
+                },
+                "url": "{{ url }}"
+            }
+            {% if show_delete_button %}
+            ,
+            {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Remove Token",
+                    "emoji": true
+                },
+                "value": "click_me_123",
+                "style": "danger"
+            }
+            {% endif %}
+        ]
+    }
+]
+{% endblock %}

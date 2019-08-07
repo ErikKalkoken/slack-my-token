@@ -2,7 +2,7 @@
 
 import os
 import slack
-from flask import Flask, json, request, render_template, session
+from flask import Flask, json, request, render_template, session, Response
 import psycopg2
 import urllib
 import secrets
@@ -140,20 +140,19 @@ class Scopes:
     
     DELIMITER = ","
 
-    def __init__(self, scopes=None):
-        self._scopes = list()
+    def __init__(self, scopes=None):                                
+        if scopes is None:
+            scopes = set()
+        else:
+            scopes = set(scopes)
                 
-        if scopes is not None:
-            if not isinstance(scopes, list):
-                raise TypeError("scopes must be a list")
-            else:        
-                # make sure single scope strings do not contain delimiter
-                for scope in scopes:
-                    if self.DELIMITER in scope:
-                        raise ValueError(f"scopes can not contain {self.DELIMITER}")
-                    else:
-                        self.add(scope)
-
+        if any(self.DELIMITER in s for s in scopes):
+            raise ValueError(
+                f"strings in scopes can not contain {self.DELIMITER}"
+            )
+        
+        self._scopes = scopes                    
+        
     @property
     def scopes(self):
         return self._scopes
@@ -161,30 +160,36 @@ class Scopes:
     def __str__(self):
         return self.get_string()
 
-    def __getitem__(self, index):
-        return self._scopes[index]
-
     def __contains__(self, key):
         return key in self._scopes
 
     def get_string(self):
-        return self.DELIMITER.join(self._scopes)
+        scopes_list = list(self._scopes)
+        scopes_list.sort()
+        return self.DELIMITER.join(scopes_list)
 
     def add(self, scope):        
         if not isinstance(scope, str):
             raise TypeError("scope must be of type string")
-        if scope not in self._scopes:
-            self._scopes.append(scope)
+        if self.DELIMITER in scope:
+            raise ValueError(f"scope can not contain {self.DELIMITER}")
+
+        self._scopes.add(scope)
 
     def __add__(self, s2):        
-        s_sum = self._scopes + s2.scopes
+        s_sum = self._scopes.union(s2.scopes)
         return Scopes(s_sum)
 
     def diff(self, scopes_second):
         if not isinstance(scopes_second, Scopes):
             raise TypeError("scopes_second must be of type Scopes")
-        scopes_diff = [item for item in self._scopes if item not in scopes_second]
+        scopes_diff = self._scopes.difference(scopes_second.scopes)
         return Scopes(scopes_diff)
+
+    def get_sorted(self):
+        scopes_list = list(self._scopes)
+        scopes_list.sort()
+        return scopes_list
     
     @classmethod
     def create_from_string(cls, scopes_str):
@@ -206,12 +211,11 @@ class Scopes:
                 raise RuntimeError(
                      f"WARN: failed to read from {filename}: {e} "
                 )
-            scopes = list()
+            scopes = set()
             for scope in arr:
                 if scope["enabled"]:
-                    scopes.append(scope["scope"])    
-            # scopes.sort()    
-
+                    scopes.add(scope["scope"])    
+            
         return cls(scopes)
 
 # flask app
@@ -231,9 +235,9 @@ def draw_select_scopes():
     scopes_all = Scopes.create_from_file("scopes")        
     scopes_remain = scopes_all.diff(scopes_preselected)
     return render_template(
-        'select.html', 
-        scopes_preselected=scopes_preselected,
-        scopes_remain=scopes_remain
+        'select.html.j2', 
+        scopes_preselected=scopes_preselected.get_sorted(),
+        scopes_remain=scopes_remain.get_sorted()
     )
 
 @app.route("/process", methods=["POST"])
@@ -249,9 +253,9 @@ def draw_confirm_scopes():
         )
         
     return render_template(
-        'confirm.html',         
+        'confirm.html.j2',         
         oauth_url=oauth_url,
-        scopes=scopes_all
+        scopes=scopes_all.get_sorted()
     )
 
 @app.route("/finish_auth", methods=["GET", "POST"])
@@ -304,7 +308,7 @@ def draw_finished_auth():
             connection.close()
             
             return render_template(
-                'finished.html',         
+                'finished.html.j2',         
                 team_name=team_name,                
                 token=token.token,
                 scopes_str=scopes_str
@@ -314,21 +318,20 @@ def draw_finished_auth():
             raise error
             """
             return render_template(
-                'error.html',         
+                'error.html.j2',         
                 error=error,                
             )
             """
     else:
         return render_template(
-            'error.html',         
+            'error.html.j2',         
             error=error,                
         )
     
 
 @app.route('/slash', methods=['POST'])
 def slash_response():                
-    """endpoint for receiving all slash command requests from Slack"""
-    
+    """endpoint for receiving all slash command requests from Slack"""    
     try:        
         # get token for current workspace
         team_id = request.form.get("team_id")
@@ -341,20 +344,37 @@ def slash_response():
         )    
         connection.close()
         if token is None:
-            response = "You have no token yet."
+            text = "You have not yet created a token."
+            create_token_text = "Create Token"
+            url = request.url_root
+            show_delete_button = False
         
-        else :  
+        else :              
+            scopes = Scopes.create_from_string(token.scopes)
             # create response        
-            response = json.jsonify({
-                "text": (f"Your token is: `{token.token}`\n"
-                    + f"with these scopes: `{token.scopes}`")
-            })   
+            text = (f"Your token is: `{token.token}`\n"
+                + f"with these scopes: `{scopes.get_string()}`")
+            create_token_text = "Add Scopes"
+            url = request.url_root + "?scopes=" + scopes.get_string()
+            show_delete_button = True
+        
+        response_json = render_template(
+            "slash_main.json.j2",
+            text=text,
+            create_token_text=create_token_text,
+            url=url,
+            show_delete_button=show_delete_button
+        )         
+        print(response_json)
+        return Response(response_json, mimetype='application/json')
+            
+            
     except Exception as error:
         print("ERROR: ", error)
-        response = "An internal error occurred"
-
-    ## respond to user
-    return response
+        response_json = render_template(
+            "slash_error.json.j2"
+        )         
+        return Response(response_json, mimetype='application/json')
 
 
 # to run this flask app locally

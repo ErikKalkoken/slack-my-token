@@ -16,11 +16,12 @@ class TestScopes(unittest.TestCase):
     def test_create1(self):                
         x = Scopes()
         self.assertIsInstance(x, Scopes)
-        self.assertEqual(x.scopes, list())
+        self.assertEqual(x.scopes, set())
 
     def test_create2(self):                        
-        with self.assertRaises(TypeError):
-            x = Scopes(dict())
+        x = Scopes(dict())
+        self.assertIsInstance(x, Scopes)
+        self.assertEqual(x.scopes, set())
 
     def test_create3(self):                        
         s = ["first:,xxx", "second:yyy", "third:zzz"]        
@@ -30,7 +31,7 @@ class TestScopes(unittest.TestCase):
     def test_create4(self):                        
         x = Scopes.create_from_string("first:xxx,second:yyy,third:zzz")
         self.assertIsInstance(x, Scopes)
-        self.assertEqual(x.scopes, ["first:xxx", "second:yyy", "third:zzz"])
+        self.assertCountEqual(x.scopes, ["first:xxx", "second:yyy", "third:zzz"])
 
     def test_create5(self):                        
         x = Scopes.create_from_file("scopes")
@@ -41,7 +42,7 @@ class TestScopes(unittest.TestCase):
         s = ["first:xxx", "second:yyy", "third:zzz"]
         x = Scopes(s)
         self.assertIsInstance(x, Scopes)
-        self.assertEqual(x.scopes, s)
+        self.assertCountEqual(x.scopes, s)
         self.assertEqual(x.get_string(), "first:xxx,second:yyy,third:zzz")
     
     def test_contains(self):  
@@ -49,12 +50,14 @@ class TestScopes(unittest.TestCase):
         self.assertTrue("second:yyy" in s)
         self.assertFalse("not-in-there" in s)
 
-    def test_iter(self):
+    """
+        def test_iter(self):
         s = ["first:xxx", "second:yyy", "third:zzz"]
         x = Scopes(s)
         self.assertIsInstance(x, Scopes)
         for y in x:
             self.assertIsInstance(y, str)
+    """
 
     def test_add(self):          
         s1 = ["a", "b", "c"]
@@ -65,8 +68,20 @@ class TestScopes(unittest.TestCase):
         self.assertIsInstance(x2, Scopes)
         x3 = x1 + x2
         self.assertIsInstance(x3, Scopes)
-        self.assertEqual(x3.scopes, ["a", "b", "c", "d", "e"])
+        self.assertCountEqual(x3.scopes, ["a", "b", "c", "d", "e"])
 
+    
+    def test_add_scope(self):                        
+        s = ["a", "b", "c"]
+        x = Scopes(s)   
+        
+        # add good scope
+        x.add("d")
+        self.assertCountEqual(x.scopes, ["a", "b", "c", "d"])
+        
+        # add bad scope
+        with self.assertRaises(ValueError):
+            x.add("b,")
     
     def test_diff(self):
         s1 = ["a", "b", "c", "d"]
@@ -74,7 +89,13 @@ class TestScopes(unittest.TestCase):
         x1 = Scopes(s1)
         x2 = Scopes(s2)
         x3 = x1.diff(x2)
-        self.assertEqual(x3.scopes, ["b", "d"])
+        self.assertCountEqual(x3.scopes, ["b", "d"])
+
+    def test_get_sorted(self):                        
+        s = ["a", "d", "c", "b"]
+        x = Scopes(s)
+        self.assertIsInstance(x, Scopes)
+        self.assertEqual(x.get_sorted(), ["a", "b", "c", "d"])
 
 if __name__ == '__main__':
     unittest.main()

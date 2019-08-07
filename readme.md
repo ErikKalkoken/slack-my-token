@@ -1,3 +1,3 @@
-# slack-mytoken
+# slack-my-token
 
-App for creating user tokens
+Slack app for creating user tokens
