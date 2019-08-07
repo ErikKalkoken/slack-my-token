@@ -2,10 +2,11 @@
 
 import os
 import slack
-from flask import Flask, json, request, render_template, session, Response
+from flask import Flask, json, request, render_template, session, Response, abort
 import psycopg2
 import urllib
 import secrets
+import requests
 
 # database connection
 DATABASE_URL = os.environ['DATABASE_URL']
@@ -15,6 +16,9 @@ client_id = os.environ["SLACK_CLIENT_ID"]
 client_secret = os.environ["SLACK_CLIENT_SECRET"]
 REQUIRED_SCOPES = "commands"
 
+# Slack action IDs
+BUTTON_NEW_ACTION_ID = "button_new"
+BUTTON_REMOVE_ACTION_ID = "button_remove"
 
 class Token:
     """A token for a Slack team and user
@@ -63,32 +67,55 @@ class Token:
 
         """
         try:                
-            cursor = connection.cursor()               
-            sql_query = """INSERT INTO mytoken_tokens 
-                (team_id, user_id, team_name, scopes, token) 
-                VALUES (%s, %s, %s, %s, %s) 
-                ON CONFLICT (team_id, user_id)
-                DO UPDATE SET team_name=%s, scopes=%s, token=%s
-            """
-            record = (
-                self._team_id, 
-                self._user_id, 
-                self._team_name,                 
-                self._scopes, 
-                self._token, 
-                self._team_name,                 
-                self._scopes, 
-                self._token
-            )
-            cursor.execute(sql_query, record)
-            connection.commit()
+            with connection.cursor() as cursor:
+                sql_query = """INSERT INTO mytoken_tokens 
+                    (team_id, user_id, team_name, scopes, token) 
+                    VALUES (%s, %s, %s, %s, %s) 
+                    ON CONFLICT (team_id, user_id)
+                    DO UPDATE SET team_name=%s, scopes=%s, token=%s
+                """
+                record = (
+                    self._team_id, 
+                    self._user_id, 
+                    self._team_name,                 
+                    self._scopes, 
+                    self._token, 
+                    self._team_name,                 
+                    self._scopes, 
+                    self._token
+                )
+                cursor.execute(sql_query, record)
+                connection.commit()
         except (Exception, psycopg2.Error) as error:            
             print("WARN: Failed to insert record into table", error)
             raise error
-        finally:
-            #closing cursor
-            if (cursor):
-                cursor.close()                
+                
+            
+    def delete(self, connection):
+        """deletes the current object in DB
+
+        Args:
+            connection: current postgres connection
+
+        Exceptions:
+            on any error
+
+        """
+        try:                
+            with connection.cursor() as cursor:
+                sql_query = """DELETE FROM mytoken_tokens 
+                    WHERE team_id = %s
+                    AND user_id = %s                        
+                """
+                record = (
+                    self._team_id, 
+                    self._user_id
+                )
+                cursor.execute(sql_query, record)
+                connection.commit()
+        except (Exception, psycopg2.Error) as error:            
+            print("WARN: Failed to delete record from table", error)
+            raise error
 
     @classmethod
     def fetchFromDb(cls, connection, team_id, user_id):
@@ -105,33 +132,32 @@ class Token:
             on any error
         """
         try:            
-            cursor = connection.cursor()
-            sql_query = """SELECT 
-                    team_id, user_id, team_name, scopes, token
-                FROM mytoken_tokens 
-                WHERE team_id = %s
-                AND user_id = %s"""                
-            cursor.execute(sql_query, (team_id, user_id))            
-            record = cursor.fetchone()
-            if (record == None):
-                print(f"WARN: Could not find a team for ID: {id}")
-                obj = None
-            else:                
-                obj = cls(
-                    record[0], 
-                    record[1], 
-                    record[2], 
-                    record[3], 
-                    record[4]
-                )
+            with connection.cursor() as cursor:
+                sql_query = """SELECT 
+                        team_id, user_id, team_name, scopes, token
+                    FROM mytoken_tokens 
+                    WHERE team_id = %s
+                    AND user_id = %s"""                
+                cursor.execute(sql_query, (team_id, user_id))            
+                record = cursor.fetchone()
+                if (record == None):
+                    print(
+                        f"WARN: Could not find a token for team {team_id} "
+                            + f"and user {user_id}"
+                    )
+                    obj = None
+                else:                
+                    obj = cls(
+                        record[0], 
+                        record[1], 
+                        record[2], 
+                        record[3], 
+                        record[4]
+                    )
             
         except (Exception, psycopg2.Error) as error :
             print("Error while fetching data from PostgreSQL", error)
             raise
-        finally:
-            #closing database connection.
-            if(cursor):
-                cursor.close()
 
         return obj
 
@@ -261,9 +287,6 @@ def draw_confirm_scopes():
 @app.route("/finish_auth", methods=["GET", "POST"])
 def draw_finished_auth():
     """Exchange to oauth code with a token and store it"""
-
-    print(request.args)
-    print(session)
     
     error = None
     # verify the state            
@@ -296,21 +319,20 @@ def draw_finished_auth():
             access_token = api_response["access_token"]
             
             # store the received token to our DB for later use                
-            connection = psycopg2.connect(DATABASE_URL)
-            token = Token(
-                team_id,
-                user_id,
-                team_name,                
-                scopes_str,
-                access_token
-            )
-            token.store(connection)
-            connection.close()
+            with psycopg2.connect(DATABASE_URL) as connection:                
+                my_token = Token(
+                    team_id,
+                    user_id,
+                    team_name,                
+                    scopes_str,
+                    access_token
+                )
+                my_token.store(connection)
             
             return render_template(
                 'finished.html.j2',         
                 team_name=team_name,                
-                token=token.token,
+                token=my_token.token,
                 scopes_str=scopes_str
             )
         except (Exception, psycopg2.Error) as error :
@@ -330,51 +352,102 @@ def draw_finished_auth():
     
 
 @app.route('/slash', methods=['POST'])
-def slash_response():                
+def slash_request():                
     """endpoint for receiving all slash command requests from Slack"""    
     try:        
         # get token for current workspace
         team_id = request.form.get("team_id")
         user_id = request.form.get("user_id")
-        connection = psycopg2.connect(DATABASE_URL)
-        token = Token.fetchFromDb(
-            connection, 
-            team_id,
-            user_id
-        )    
-        connection.close()
-        if token is None:
+        with psycopg2.connect(DATABASE_URL) as connection:
+            my_token = Token.fetchFromDb(
+                connection, 
+                team_id,
+                user_id
+            )
+        if my_token is None:
             text = "You have not yet created a token."
             create_token_text = "Create Token"
-            url = request.url_root
-            show_delete_button = False
-        
+            url = request.url_root            
+            button_new_action_id = BUTTON_NEW_ACTION_ID
+            has_token = False
+            token = None
+            scopes = None
+
         else :              
-            scopes = Scopes.create_from_string(token.scopes)
+            scopes = Scopes.create_from_string(my_token.scopes)
             # create response        
-            text = (f"Your token is: `{token.token}`\n"
-                + f"with these scopes: `{scopes.get_string()}`")
+            text = (f"Your token is:\n>`{my_token.token}`\n"
+                + f"with these scopes:\n>`{scopes.get_string()}`")
             create_token_text = "Add Scopes"
             url = request.url_root + "?scopes=" + scopes.get_string()
-            show_delete_button = True
+            has_token = True
+            token=my_token.token,
+            scopes=my_token.scopes
         
         response_json = render_template(
-            "slash_main.json.j2",
-            text=text,
+            "slack_current_token.json.j2",
+            token=token,
+            scopes=scopes,
             create_token_text=create_token_text,
-            url=url,
-            show_delete_button=show_delete_button
-        )         
-        print(response_json)
+            url=url,            
+            button_new_action_id = BUTTON_NEW_ACTION_ID,
+            button_remove_action_id = BUTTON_REMOVE_ACTION_ID,
+            has_token = has_token
+        )                 
         return Response(response_json, mimetype='application/json')
             
             
     except Exception as error:
         print("ERROR: ", error)
         response_json = render_template(
-            "slash_error.json.j2"
+            "slack_simple_message.json.j2",
+            text="An internal error has occurred"
         )         
-        return Response(response_json, mimetype='application/json')
+        raise error
+        # return Response(response_json, mimetype='application/json')
+
+
+@app.route('/interactive', methods=['POST'])
+def interactive_request():                
+    """endpoint for receiving all slash command requests from Slack"""    
+    if "payload" in request.form:    
+        payload = json.loads(request.form["payload"])
+        print(payload)        
+        
+        # get token for current user
+        team_id = payload["team"]["id"]
+        user_id = payload["user"]["id"]
+
+        
+        action_id = payload["actions"][0]["action_id"]
+        if action_id == BUTTON_REMOVE_ACTION_ID:                
+            # lets delete the old token
+            try:
+                with psycopg2.connect(DATABASE_URL) as connection:
+                    token = Token.fetchFromDb(
+                        connection, 
+                        team_id,
+                        user_id
+                    )                
+                    token.delete(connection)
+                    req = {
+                        "text": "Your token has been deleted.",
+                        "replace_original": True,
+                        "delete_original": True
+                    }
+                    res = requests.post(
+                        payload["response_url"],
+                        json=req
+                    )
+                    client = slack.WebClient(token=token.token)
+                    res = client.auth_revoke()
+                    assert res["ok"]
+                       
+            except Exception as error:
+                print("ERROR: ", error)
+                abort(500)
+            
+    return ""
 
 
 # to run this flask app locally

@@ -76,5 +76,21 @@ class TestToken(unittest.TestCase):
         )
         self.assertIsNone(y)
 
+    def test_delete(self):
+        x = Token("T0TEST01", "U101", "team1", "scope1", "token1")        
+        x.store(self._connection)
+
+        y = Token.fetchFromDb(self._connection, "T0TEST01", "U101")
+        self.assertEqual(x.team_id, y.team_id)
+        self.assertEqual(x.user_id, y.user_id)
+        self.assertEqual(x.team_name, y.team_name)        
+        self.assertEqual(x.scopes, y.scopes)
+        self.assertEqual(x.token, y.token)
+
+        x.delete(self._connection)
+        y = Token.fetchFromDb(self._connection, "T0TEST01", "U101")
+        self.assertIsNone(y)
+
+
 if __name__ == '__main__':
     unittest.main()
