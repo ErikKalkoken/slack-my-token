@@ -7,6 +7,7 @@ import psycopg2
 import urllib
 import secrets
 import requests
+from slack_objects import Blocks, ActionsBlock, Button, Section, ConfirmationDialog, ResponseMessage
 
 # database connection
 DATABASE_URL = os.environ['DATABASE_URL']
@@ -17,8 +18,9 @@ client_secret = os.environ["SLACK_CLIENT_SECRET"]
 REQUIRED_SCOPES = "commands"
 
 # Slack action IDs
-BUTTON_NEW_ACTION_ID = "button_new"
-BUTTON_REMOVE_ACTION_ID = "button_remove"
+AID_BUTTON_NEW = "button_new"
+AID_BUTTON_REMOVE = "button_remove"
+AID_BUTTON_DUMMY = "button_dummy"
 
 class Token:
     """A token for a Slack team and user
@@ -364,45 +366,64 @@ def slash_request():
                 team_id,
                 user_id
             )
-        if my_token is None:
-            text = "You have not yet created a token."
-            create_token_text = "Create Token"
+        if my_token is None:                        
             url = request.url_root            
-            button_new_action_id = BUTTON_NEW_ACTION_ID
-            has_token = False
-            token = None
-            scopes = None
+            blocks = Blocks([
+                Section("You have not yet created a token."),
+                ActionsBlock([
+                    Button(
+                        "Create Token", 
+                        AID_BUTTON_NEW, 
+                        url=url
+                    )
+                ])
+            ])
 
         else :              
             scopes = Scopes.create_from_string(my_token.scopes)
-            # create response        
-            text = (f"Your token is:\n>`{my_token.token}`\n"
-                + f"with these scopes:\n>`{scopes.get_string()}`")
-            create_token_text = "Add Scopes"
+            # create response                                
             url = request.url_root + "?scopes=" + scopes.get_string()
-            has_token = True
-            token=my_token.token,
-            scopes=my_token.scopes
+            blocks = Blocks([
+                Section(
+                    f"Your token is:\n>`{my_token.token}`\n"
+                    + f"with these scopes:\n>`{scopes.get_string()}`"
+                ),
+                ActionsBlock([
+                    Button(
+                        "Add Scopes", 
+                        AID_BUTTON_NEW, 
+                        url=url
+                    ),              
+                    Button(
+                        "Delete Token", 
+                        AID_BUTTON_REMOVE, 
+                        style=Button.STYLE_DANGER, 
+                        confirm=ConfirmationDialog(
+                            "Are you sure?",
+                            "Do you really want to delete your token?",
+                            "Delete Token",
+                            "Cancel"
+                        )
+                    ),
+                    Button(
+                        "Dummy", 
+                        AID_BUTTON_DUMMY
+                    )
+                ])
+            ])
         
-        response_json = render_template(
-            "slack_current_token.json.j2",
-            token=token,
-            scopes=scopes,
-            create_token_text=create_token_text,
-            url=url,            
-            button_new_action_id = BUTTON_NEW_ACTION_ID,
-            button_remove_action_id = BUTTON_REMOVE_ACTION_ID,
-            has_token = has_token
-        )                 
-        return Response(response_json, mimetype='application/json')
+        response_msg = ResponseMessage(
+            blocks = blocks
+        )
+        
+        return Response(response_msg.get_json(), mimetype='application/json')
             
             
     except Exception as error:
-        print("ERROR: ", error)
-        response_json = render_template(
-            "slack_simple_message.json.j2",
-            text="An internal error has occurred"
-        )         
+        print("ERROR: ", error)        
+        response_json = {
+            "text": "An internal error has occurred"
+        }
         raise error
         # return Response(response_json, mimetype='application/json')
 
@@ -420,7 +441,8 @@ def interactive_request():
 
         
         action_id = payload["actions"][0]["action_id"]
-        if action_id == BUTTON_REMOVE_ACTION_ID:                
+        
+        if action_id == AID_BUTTON_REMOVE:
             # lets delete the old token
             try:
                 with psycopg2.connect(DATABASE_URL) as connection:
@@ -430,15 +452,13 @@ def interactive_request():
                         user_id
                     )                
                     token.delete(connection)
-                    req = {
-                        "text": "Your token has been deleted.",
-                        "replace_original": True,
-                        "delete_original": True
-                    }
-                    res = requests.post(
-                        payload["response_url"],
-                        json=req
+                    response_msg = ResponseMessage(
+                        text = "Your token has been deleted.",
+                        replace_original=True,
+                        delete_original=True
                     )
+                    response_msg.send(payload["response_url"])
+                    
                     client = slack.WebClient(token=token.token)
                     res = client.auth_revoke()
                     assert res["ok"]
@@ -446,7 +466,14 @@ def interactive_request():
             except Exception as error:
                 print("ERROR: ", error)
                 abort(500)
-            
+        
+        elif action_id == AID_BUTTON_DUMMY:
+            response_msg = ResponseMessage(
+                text = "This is a dummy response"
+            )
+            response_msg.send(payload["response_url"])
+
+                
     return ""
 
 
