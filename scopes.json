@@ -240,7 +240,7 @@
 },
 {
     "scope": "commands",
-    "enabled": false
+    "enabled": true
 },
 {
     "scope": "client",

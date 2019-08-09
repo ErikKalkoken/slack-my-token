@@ -7,14 +7,20 @@ import psycopg2
 import urllib
 import secrets
 import requests
+import hmac
+import hashlib
+from datetime import datetime
+import pytz
 from slack_objects import Blocks, ActionsBlock, Button, Section, ConfirmationDialog, ResponseMessage
 
-# database connection
+# environment variables
 DATABASE_URL = os.environ['DATABASE_URL']
+SLACK_CLIENT_ID = os.environ["SLACK_CLIENT_ID"]
+SLACK_CLIENT_SECRET = os.environ["SLACK_CLIENT_SECRET"]
+SLACK_SIGNING_SECRET = os.environ["SLACK_SIGNING_SECRET"]
+FLASK_SECRET_KEY = os.environ["FLASK_SECRET_KEY"]
 
-# setting oauth client parameters
-client_id = os.environ["SLACK_CLIENT_ID"]
-client_secret = os.environ["SLACK_CLIENT_SECRET"]
+# Slack Oauth config
 REQUIRED_SCOPES = "commands"
 
 # Slack action IDs
@@ -22,7 +28,7 @@ AID_BUTTON_NEW = "button_new"
 AID_BUTTON_REMOVE = "button_remove"
 AID_BUTTON_DUMMY = "button_dummy"
 
-class Token:
+class Authorization:
     """A token for a Slack team and user
     
     Public properties:
@@ -30,33 +36,62 @@ class Token:
         name: team name
         token: Slack token
     """
-    def __init__(self, team_id, user_id, team_name, scopes, token):
-        self._team_id = team_id[:64]
-        self._user_id = user_id[:64]
-        self._team_name = team_name[:255]        
-        self._scopes = scopes
-        self._token = token[:255]
-    
+    def __init__(
+            self, 
+            team_id: str, 
+            user_id: str, 
+            team_name: str, 
+            scopes: str, 
+            token: str,
+            is_owner: bool,
+            last_update: datetime = None
+        ):
+        # validation
+        if not isinstance(is_owner, bool):
+            raise TypeError("is_owner must be of type bool")
+        if last_update is None:
+            last_update = pytz.utc.localize(datetime.utcnow())          
+        if not isinstance(last_update, datetime):
+            raise TypeError(
+                "last_update must be of type datetime, but is: " 
+                    + str(type(last_update))
+            )
+        # init
+        self._team_id = str(team_id)[:64]
+        self._user_id = str(user_id)[:64]
+        self._team_name = str(team_name)[:255]        
+        self._scopes = str(scopes)
+        self._token = str(token)[:255]
+        self._is_owner  = is_owner                
+        self._last_update  = last_update
+
     @property
-    def team_id(self):
+    def team_id(self) -> str:
         return self._team_id
 
     @property
-    def user_id(self):
+    def user_id(self) -> str:
         return self._user_id
 
     @property
-    def team_name(self):
+    def team_name(self) -> str:
         return self._team_name
 
     @property
-    def scopes(self):
+    def scopes(self) -> str:
         return self._scopes
 
     @property
-    def token(self):
+    def token(self) -> str:
         return self._token
 
+    @property
+    def is_owner(self) -> bool:
+        return self._is_owner
+
+    @property
+    def last_update(self) -> datetime:
+        return self._last_update
 
     def store(self, connection):
         """stores the current object to database. will overwrite existing.
@@ -69,12 +104,25 @@ class Token:
 
         """
         try:                
-            with connection.cursor() as cursor:
-                sql_query = """INSERT INTO mytoken_tokens 
-                    (team_id, user_id, team_name, scopes, token) 
-                    VALUES (%s, %s, %s, %s, %s) 
+            with connection.cursor() as cursor:                
+                sql_query = """INSERT INTO mytoken_auths 
+                    (
+                        team_id, 
+                        user_id, 
+                        team_name, 
+                        scopes, 
+                        token, 
+                        is_owner, 
+                        last_update
+                    ) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s) 
                     ON CONFLICT (team_id, user_id)
-                    DO UPDATE SET team_name=%s, scopes=%s, token=%s
+                    DO UPDATE SET 
+                        team_name=%s, 
+                        scopes=%s, 
+                        token=%s, 
+                        is_owner=%s, 
+                        last_update=%s
                 """
                 record = (
                     self._team_id, 
@@ -82,9 +130,13 @@ class Token:
                     self._team_name,                 
                     self._scopes, 
                     self._token, 
+                    self._is_owner,
+                    self._last_update,
                     self._team_name,                 
                     self._scopes, 
-                    self._token
+                    self._token,
+                    self._is_owner,
+                    self._last_update
                 )
                 cursor.execute(sql_query, record)
                 connection.commit()
@@ -105,7 +157,7 @@ class Token:
         """
         try:                
             with connection.cursor() as cursor:
-                sql_query = """DELETE FROM mytoken_tokens 
+                sql_query = """DELETE FROM mytoken_auths 
                     WHERE team_id = %s
                     AND user_id = %s                        
                 """
@@ -128,7 +180,7 @@ class Token:
             id: team ID of object to be fetched
 
         Returns:
-            the Token object when found or None if not found
+            the Authorization object when found or None if not found
         
         Exceptions:
             on any error
@@ -136,8 +188,14 @@ class Token:
         try:            
             with connection.cursor() as cursor:
                 sql_query = """SELECT 
-                        team_id, user_id, team_name, scopes, token
-                    FROM mytoken_tokens 
+                        team_id, 
+                        user_id, 
+                        team_name, 
+                        scopes, 
+                        token,
+                        is_owner,
+                        last_update
+                    FROM mytoken_auths 
                     WHERE team_id = %s
                     AND user_id = %s"""                
                 cursor.execute(sql_query, (team_id, user_id))            
@@ -154,7 +212,9 @@ class Token:
                         record[1], 
                         record[2], 
                         record[3], 
-                        record[4]
+                        record[4], 
+                        record[5], 
+                        record[6]
                     )
             
         except (Exception, psycopg2.Error) as error :
@@ -246,9 +306,13 @@ class Scopes:
             
         return cls(scopes)
 
+
+def request_is_valid(request_raw, signing_secret):
+    pass
+
 # flask app
 app = Flask(__name__)
-app.secret_key = os.environ['FLASK_SECRET_KEY']
+app.secret_key = FLASK_SECRET_KEY
 
 @app.route("/", methods=["GET"])
 def draw_select_scopes():
@@ -257,7 +321,7 @@ def draw_select_scopes():
         scopes_preselected = Scopes.create_from_string(request.args["scopes"])
     else:
         scopes_preselected = Scopes()
-    scopes_preselected.add("commands")
+    #scopes_preselected.add("commands")
     session["scopes_preselected"] = scopes_preselected.get_string()
 
     scopes_all = Scopes.create_from_file("scopes")        
@@ -276,7 +340,7 @@ def draw_confirm_scopes():
     state = secrets.token_urlsafe(20)
     session["state"] = state
     oauth_url = (f'https://slack.com/oauth/authorize?scope={ scopes_all.get_string() }' 
-        + f'&client_id={ client_id }'
+        + f'&client_id={ SLACK_CLIENT_ID }'
         + f'&state={ state }'
         )
         
@@ -309,8 +373,8 @@ def draw_finished_auth():
 
             # Request the auth tokens from Slack
             api_response = client.oauth_access(
-                client_id=client_id,
-                client_secret=client_secret,
+                client_id=SLACK_CLIENT_ID,
+                client_secret=SLACK_CLIENT_SECRET,
                 code=auth_code
             )    
             print(api_response)
@@ -322,7 +386,7 @@ def draw_finished_auth():
             
             # store the received token to our DB for later use                
             with psycopg2.connect(DATABASE_URL) as connection:                
-                my_token = Token(
+                my_token = Authorization(
                     team_id,
                     user_id,
                     team_name,                
@@ -353,15 +417,47 @@ def draw_finished_auth():
         )
     
 
+def is_slack_request_valid(ts, body, signature, signing_secret) -> bool:
+    """verifies a request with signed secret approach
+    
+    Args:
+        ts = timestamp of request from X-Slack-Request-Timestamp header
+        body = string of request body
+        signature = signature of request from X-Slack-Signature header
+        signing_secret = signing secret of this app
+    
+    Returns:
+        true if signatures match
+        false otherwise
+    """
+    version = "v0"        
+    base_string = ":".join([version, ts, body])    
+    h = hmac.new(
+        signing_secret.encode("utf-8"), 
+        base_string.encode("utf-8"), 
+        hashlib.sha256 
+    )
+    my_signature = version + "=" + h.hexdigest()
+    return my_signature == signature    
+
+
 @app.route('/slash', methods=['POST'])
 def slash_request():                
-    """endpoint for receiving all slash command requests from Slack"""    
-    try:        
+    """endpoint for receiving all slash command requests from Slack"""
+    try:                
+        if not is_slack_request_valid(
+                ts=request.headers["X-Slack-Request-Timestamp"],
+                body=request.get_data().decode("utf-8"),            
+                signature=request.headers["X-Slack-Signature"],
+                signing_secret=SLACK_SIGNING_SECRET):
+            print("Invalid Slack request")
+            abort(400)
+        
         # get token for current workspace
         team_id = request.form.get("team_id")
         user_id = request.form.get("user_id")
         with psycopg2.connect(DATABASE_URL) as connection:
-            my_token = Token.fetchFromDb(
+            my_token = Authorization.fetchFromDb(
                 connection, 
                 team_id,
                 user_id
@@ -431,9 +527,18 @@ def slash_request():
 @app.route('/interactive', methods=['POST'])
 def interactive_request():                
     """endpoint for receiving all slash command requests from Slack"""    
-    if "payload" in request.form:    
+    if not is_slack_request_valid(
+            ts=request.headers["X-Slack-Request-Timestamp"],
+            body=request.get_data().decode("utf-8"),            
+            signature=request.headers["X-Slack-Signature"],
+            signing_secret=SLACK_SIGNING_SECRET):
+        print("Invalid Slack request")
+        abort(400)
+
+    if "payload" in request.form:            
+        
         payload = json.loads(request.form["payload"])
-        print(payload)        
+        # print(payload)        
         
         # get token for current user
         team_id = payload["team"]["id"]
@@ -446,7 +551,7 @@ def interactive_request():
             # lets delete the old token
             try:
                 with psycopg2.connect(DATABASE_URL) as connection:
-                    token = Token.fetchFromDb(
+                    token = Authorization.fetchFromDb(
                         connection, 
                         team_id,
                         user_id
