@@ -20,20 +20,33 @@ class TestAuthorization(unittest.TestCase):
     
     @classmethod
     def setUpClass(cls):
-        cls._connection = psycopg2.connect(DATABASE_URL)
+        cls.connection = psycopg2.connect(DATABASE_URL)
+
 
     @classmethod
     def tearDownClass(cls):
         # remove test objects from DB
+        TestAuthorization.remove_test_data()
         
         # close DB connection
-        cls._connection.close()
+        cls.connection.close()
+
+
+    @classmethod
+    def remove_test_data(cls):
+        with cls.connection.cursor() as cursor:
+            sql_query = """DELETE FROM mytoken_auths 
+                WHERE team_id = 'TEST01'
+                OR team_id = 'TEST01'
+                """
+            cursor.execute(sql_query)
+            cls.connection.commit()
 
 
     def test_getters(self):
         dt = pytz.utc.localize(datetime.utcnow())
         x = Authorization(
-            "T0TEST01", 
+            "TEST01", 
             "U101", 
             "team1", 
             "scope1", 
@@ -41,7 +54,7 @@ class TestAuthorization(unittest.TestCase):
             True, 
             dt
         )
-        self.assertEqual(x.team_id, "T0TEST01")
+        self.assertEqual(x.team_id, "TEST01")
         self.assertEqual(x.user_id, "U101")
         self.assertEqual(x.team_name, "team1")        
         self.assertEqual(x.scopes, "scope1")
@@ -53,7 +66,7 @@ class TestAuthorization(unittest.TestCase):
     def test_store_1(self):
         dt = pytz.utc.localize(datetime.utcnow())
         x = Authorization(
-            "T0TEST01", 
+            "TEST01", 
             "U101", 
             "team1", 
             "scope1", 
@@ -62,27 +75,26 @@ class TestAuthorization(unittest.TestCase):
             dt
         )
         
-        x.store(self._connection)
+        x.store(self.connection)
         # store again to verify overwriting existing works
-        x.store(self._connection)
+        x.store(self.connection)
         
         y = Authorization(
-            "T0TEST02", 
+            "TEST01", 
             "U102", 
             "team2", 
             "scope2", 
             "token2", 
             False, 
             dt
-        )
-        self.assertIsInstance(y, Authorization)
-        y.store(self._connection)
+        )        
+        y.store(self.connection)
 
 
     def test_store_2(self):
         dt = pytz.utc.localize(datetime.utcnow())
         x = Authorization(
-            "T0TEST01", 
+            "TEST01", 
             "U102", 
             "team1", 
             "scope1", 
@@ -90,22 +102,21 @@ class TestAuthorization(unittest.TestCase):
             True
         )
         
-        x.store(self._connection)
+        x.store(self.connection)
 
     def test_fetch_normal(self):        
         """store and then fetch same record. check if its identical"""
         x = Authorization(
-            "T0TEST01", 
+            "TEST01", 
             "U101", 
             "team1", 
             "scope1", 
             "token1", 
             True
-        )
-        self.assertIsInstance(x, Authorization)        
-        x.store(self._connection)
+        )        
+        x.store(self.connection)
         
-        y = Authorization.fetchFromDb(self._connection, "T0TEST01", "U101")
+        y = Authorization.fetchFromDb(self.connection, "TEST01", "U101")
         self.assertEqual(x.team_id, y.team_id)
         self.assertEqual(x.user_id, y.user_id)
         self.assertEqual(x.team_name, y.team_name)        
@@ -117,7 +128,7 @@ class TestAuthorization(unittest.TestCase):
 
     def test_fetch_unknown(self):
         y = Authorization.fetchFromDb(
-            self._connection, 
+            self.connection, 
             "does_not_exist", 
             "does_not_exist"
         )
@@ -125,7 +136,7 @@ class TestAuthorization(unittest.TestCase):
 
     def test_delete(self):
         x = Authorization(
-            "T0TEST01", 
+            "TEST01", 
             "U101", 
             "team1", 
             "scope1", 
@@ -133,18 +144,58 @@ class TestAuthorization(unittest.TestCase):
             True, 
             pytz.utc.localize(datetime.utcnow())
         )        
-        x.store(self._connection)
+        x.store(self.connection)
 
-        y = Authorization.fetchFromDb(self._connection, "T0TEST01", "U101")
+        y = Authorization.fetchFromDb(self.connection, "TEST01", "U101")
         self.assertEqual(x.team_id, y.team_id)
         self.assertEqual(x.user_id, y.user_id)
         self.assertEqual(x.team_name, y.team_name)        
         self.assertEqual(x.scopes, y.scopes)
         self.assertEqual(x.token, y.token)
 
-        x.delete(self._connection)
-        y = Authorization.fetchFromDb(self._connection, "T0TEST01", "U101")
+        x.delete(self.connection)
+        y = Authorization.fetchFromDb(self.connection, "TEST01", "U101")
         self.assertIsNone(y)
+
+    def test_count(self):
+        TestAuthorization.remove_test_data()        
+        
+        # first should be zero
+        self.assertEqual(Authorization.get_count_for_team(
+            self.connection,
+            "TEST01"
+            ),
+            0
+        )
+        # now lets create and store two objects
+        x = Authorization(
+            "TEST01", 
+            "U101", 
+            "team1", 
+            "scope1", 
+            "token1", 
+            True
+        )
+        
+        x.store(self.connection)
+                
+        y = Authorization(
+            "TEST01", 
+            "U102", 
+            "team2", 
+            "scope2", 
+            "token2", 
+            False
+        )        
+        y.store(self.connection)
+
+        # should be 2
+        self.assertEqual(Authorization.get_count_for_team(
+            self.connection,
+            "TEST01"
+            ),
+            2
+        )
 
 
 if __name__ == '__main__':

@@ -93,7 +93,7 @@ class Authorization:
     def last_update(self) -> datetime:
         return self._last_update
 
-    def store(self, connection):
+    def store(self, connection: object):
         """stores the current object to database. will overwrite existing.
 
         Args:
@@ -145,7 +145,7 @@ class Authorization:
             raise error
                 
             
-    def delete(self, connection):
+    def delete(self, connection: object):
         """deletes the current object in DB
 
         Args:
@@ -172,7 +172,11 @@ class Authorization:
             raise error
 
     @classmethod
-    def fetchFromDb(cls, connection, team_id, user_id):
+    def fetchFromDb(
+            cls, 
+            connection: object, 
+            team_id: str, 
+            user_id: str) -> any:
         """fetches an object from database by its team ID
          
          Args:            
@@ -223,12 +227,50 @@ class Authorization:
 
         return obj
 
+    @classmethod
+    def get_count_for_team(
+            cls, 
+            connection: object, 
+            team_id: str) -> int:
+        """return the number of stored authorizations for a team
+         
+         Args:            
+            connection: current postgres connection
+            team_id: team ID of object to be fetched
+
+        Returns:
+            count of authorizations for that team
+        
+        Exceptions:
+            on any error
+        """
+        try:            
+            with connection.cursor() as cursor:
+                sql_query = """SELECT COUNT(*)
+                    FROM mytoken_auths 
+                    WHERE team_id = %s
+                    """                
+                cursor.execute(sql_query, (team_id,))
+                record = cursor.fetchone()
+                if (record == None):
+                    raise RuntimeError(
+                        f"Could not get auths count for team {team_id} "                            
+                    )                    
+                else:                
+                    count = record[0]                    
+            
+        except (Exception, psycopg2.Error) as error :
+            print("Error while fetching data from PostgreSQL", error)
+            raise
+
+        return count
+
 
 class Scopes:
     
     DELIMITER = ","
 
-    def __init__(self, scopes=None):                                
+    def __init__(self, scopes: set=None):
         if scopes is None:
             scopes = set()
         else:
@@ -245,18 +287,18 @@ class Scopes:
     def scopes(self):
         return self._scopes
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.get_string()
 
-    def __contains__(self, key):
+    def __contains__(self, key: str) -> bool:
         return key in self._scopes
 
-    def get_string(self):
+    def get_string(self) -> str:
         scopes_list = list(self._scopes)
         scopes_list.sort()
         return self.DELIMITER.join(scopes_list)
 
-    def add(self, scope):        
+    def add(self, scope: str) -> None: 
         if not isinstance(scope, str):
             raise TypeError("scope must be of type string")
         if self.DELIMITER in scope:
@@ -264,28 +306,28 @@ class Scopes:
 
         self._scopes.add(scope)
 
-    def __add__(self, s2):        
+    def __add__(self, s2: "Scopes") -> "Scopes":
         s_sum = self._scopes.union(s2.scopes)
         return Scopes(s_sum)
 
-    def diff(self, scopes_second):
+    def diff(self, scopes_second: "Scopes") -> "Scopes":
         if not isinstance(scopes_second, Scopes):
             raise TypeError("scopes_second must be of type Scopes")
         scopes_diff = self._scopes.difference(scopes_second.scopes)
         return Scopes(scopes_diff)
 
-    def get_sorted(self):
+    def get_sorted(self) -> str:
         scopes_list = list(self._scopes)
         scopes_list.sort()
         return scopes_list
     
     @classmethod
-    def create_from_string(cls, scopes_str):
+    def create_from_string(cls, scopes_str: str) -> "Scopes":
         scopes = scopes_str.split(cls.DELIMITER)
         return cls(scopes)
 
     @classmethod
-    def create_from_file(cls, filename):    
+    def create_from_file(cls, filename: str) -> "Scopes":
         """reads a json file and returns its contents as new object"""     
         filename += '.json'
         if not os.path.isfile(filename):
@@ -306,9 +348,6 @@ class Scopes:
             
         return cls(scopes)
 
-
-def request_is_valid(request_raw, signing_secret):
-    pass
 
 # flask app
 app = Flask(__name__)
@@ -391,7 +430,8 @@ def draw_finished_auth():
                     user_id,
                     team_name,                
                     scopes_str,
-                    access_token
+                    access_token,
+                    False
                 )
                 my_token.store(connection)
             
@@ -417,7 +457,11 @@ def draw_finished_auth():
         )
     
 
-def is_slack_request_valid(ts, body, signature, signing_secret) -> bool:
+def is_slack_request_valid(
+        ts: str, 
+        body: str, 
+        signature: str, 
+        signing_secret:str ) -> bool:
     """verifies a request with signed secret approach
     
     Args:

@@ -11,13 +11,17 @@ try:
     connection = psycopg2.connect(DATABASE_URL)
     cursor = connection.cursor()
     sql = """
-        DROP TABLE IF EXISTS public.slack_teams;
-        CREATE TABLE public.slack_teams
+        DROP TABLE IF EXISTS public.mytoken_auths;
+        CREATE TABLE public.mytoken_auths
         (
-            id character varying(64) COLLATE pg_catalog."default" NOT NULL,                
-            name character varying(255) COLLATE pg_catalog."default" NOT NULL,
+            team_id character varying(64) COLLATE pg_catalog."default" NOT NULL,
+            user_id character varying(64) COLLATE pg_catalog."default" NOT NULL,
+            team_name character varying(255) COLLATE pg_catalog."default" NOT NULL,
+            scopes text COLLATE pg_catalog."default" NOT NULL,
             token character varying(255) COLLATE pg_catalog."default" NOT NULL,
-            CONSTRAINT slack_teams_pkey PRIMARY KEY (id)
+            is_owner boolean NOT NULL,
+            last_update timestamp with time zone NOT NULL,
+            CONSTRAINT mytoken_tokens_pkey PRIMARY KEY (team_id, user_id)
         )
         WITH (
             OIDS = FALSE
