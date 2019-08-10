@@ -17,9 +17,9 @@ try:
             team_id character varying(64) COLLATE pg_catalog."default" NOT NULL,
             user_id character varying(64) COLLATE pg_catalog."default" NOT NULL,
             team_name character varying(255) COLLATE pg_catalog."default" NOT NULL,
+            user_name varchar(255) NOT NULL,
             scopes text COLLATE pg_catalog."default" NOT NULL,
-            token character varying(255) COLLATE pg_catalog."default" NOT NULL,
-            is_owner boolean NOT NULL,
+            token character varying(255) COLLATE pg_catalog."default" NOT NULL,            
             last_update timestamp with time zone NOT NULL,
             CONSTRAINT mytoken_tokens_pkey PRIMARY KEY (team_id, user_id)
         )

@@ -141,6 +141,7 @@ class Authorization:
             team_id: str, 
             user_id: str,
             team_name: str, 
+            user_name: str, 
             scopes: Scopes, 
             token: str,            
             last_update: datetime = None
@@ -158,7 +159,8 @@ class Authorization:
         # init
         self._team_id = str(team_id)[:64]
         self._user_id = str(user_id)[:64]
-        self._team_name = str(team_name)[:255]        
+        self._team_name = str(team_name)[:255]
+        self._user_name = str(user_name)[:255]
         self._scopes = scopes
         self._token = str(token)[:255]        
         self._last_update  = last_update
@@ -174,7 +176,11 @@ class Authorization:
     @property
     def team_name(self) -> str:
         return self._team_name
-
+    
+    @property
+    def user_name(self) -> str:
+        return self._user_name
+    
     @property
     def scopes(self) -> str:
         return self._scopes
@@ -196,6 +202,7 @@ class Authorization:
             self.user_id == other.user_id and
             self.scopes == other.scopes and
             self.team_name == other.team_name and    
+            self.user_name == other.user_name and    
             self.token == other.token and            
             self.last_update == other.last_update            
         )
@@ -225,29 +232,33 @@ class Authorization:
                         team_id, 
                         user_id, 
                         team_name, 
+                        user_name,
                         scopes, 
                         token,                         
                         last_update
                     ) 
-                    VALUES (%s, %s, %s, %s, %s, %s) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s) 
                     ON CONFLICT (team_id, user_id)
                     DO UPDATE SET 
-                        team_name=%s, 
+                        team_name=%s,
+                        user_name=%s, 
                         scopes=%s, 
                         token=%s,                         
                         last_update=%s
                 """
                 record = (
-                    self._team_id, 
-                    self._user_id, 
-                    self._team_name,                 
-                    self._scopes.get_string(), 
-                    self._token,                     
-                    self._last_update,
-                    self._team_name,                 
-                    self._scopes.get_string(), 
-                    self._token,                    
-                    self._last_update
+                    self.team_id, 
+                    self.user_id, 
+                    self.team_name,
+                    self.user_name,
+                    self.scopes.get_string(), 
+                    self.token,                     
+                    self.last_update,
+                    self.team_name,
+                    self.user_name,                 
+                    self.scopes.get_string(), 
+                    self.token,                    
+                    self.last_update
                 )
                 cursor.execute(sql_query, record)
                 connection.commit()
@@ -306,6 +317,7 @@ class Authorization:
                         team_id, 
                         user_id, 
                         team_name, 
+                        user_name,
                         scopes, 
                         token,                        
                         last_update
@@ -325,9 +337,10 @@ class Authorization:
                         record[0], 
                         record[1], 
                         record[2], 
-                        Scopes.create_from_string(record[3]), 
-                        record[4], 
-                        record[5]
+                        record[3],
+                        Scopes.create_from_string(record[4]), 
+                        record[5], 
+                        record[6]
                     )
             
         except (Exception, psycopg2.Error) as error :
@@ -468,13 +481,19 @@ def web_finished_auth():
             scopes = Scopes.create_from_string(api_response["scope"])
             access_token = api_response["access_token"]
             
+            client = slack.WebClient(token=access_token)
+            api_response = client.auth_test()
+            assert api_response["ok"]
+            user_name = api_response["user"]
+            
             # store the received auth to our DB for later use
             # will be marked as owner if it has the commands scope
             with psycopg2.connect(DATABASE_URL) as connection:
                 my_auth = Authorization(
                     team_id,
                     user_id,
-                    team_name,                
+                    team_name,
+                    user_name,
                     scopes,
                     access_token
                 )

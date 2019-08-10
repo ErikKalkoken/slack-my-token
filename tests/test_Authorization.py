@@ -48,7 +48,8 @@ class TestAuthorization(unittest.TestCase):
         x = Authorization(
             "TEST01", 
             "U101", 
-            "team1", 
+            "team1",
+            "user1",
             Scopes("scope1"), 
             "token1",         
             dt
@@ -66,7 +67,8 @@ class TestAuthorization(unittest.TestCase):
         x = Authorization(
             "TEST01", 
             "U101", 
-            "team1", 
+            "team1",
+            "user1", 
             Scopes("scope1"), 
             "token1",          
             dt
@@ -79,7 +81,8 @@ class TestAuthorization(unittest.TestCase):
         y = Authorization(
             "TEST01", 
             "U102", 
-            "team2", 
+            "team2",
+            "user2", 
             Scopes("scope2"), 
             "token2",             
             dt
@@ -92,7 +95,8 @@ class TestAuthorization(unittest.TestCase):
         x = Authorization(
             "TEST01", 
             "U102", 
-            "team1", 
+            "team1",
+            "user2", 
             Scopes("scope1"), 
             "token1"
         )
@@ -104,7 +108,8 @@ class TestAuthorization(unittest.TestCase):
         x = Authorization(
             "TEST01", 
             "U101", 
-            "team1", 
+            "team1",
+            "user2", 
             Scopes("scope1"), 
             "token1"
         )        
@@ -132,6 +137,7 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U101", 
             "team1", 
+            "user1",
             Scopes("scope1"), 
             "token1",
             pytz.utc.localize(datetime.utcnow())
@@ -163,7 +169,8 @@ class TestAuthorization(unittest.TestCase):
         x = Authorization(
             "TEST01", 
             "U101", 
-            "team1", 
+            "team1",
+            "user1", 
             Scopes("scope1"), 
             "token1"
         )
@@ -174,6 +181,7 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U102", 
             "team2", 
+            "user1",
             Scopes("scope2"), 
             "token2"
         )        
@@ -192,6 +200,7 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U101", 
             "team1", 
+            "user1",
             Scopes(["scope1", Scopes.SCOPE_COMMANDS]), 
             "token1"
         )        
@@ -202,6 +211,7 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U101", 
             "team1", 
+            "user1",
             Scopes(["scope1"]), 
             "token1"
         )        
