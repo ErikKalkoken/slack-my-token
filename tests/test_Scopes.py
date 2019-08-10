@@ -14,13 +14,11 @@ from app import Scopes
 class TestScopes(unittest.TestCase):
     
     def test_create1(self):                
-        x = Scopes()
-        self.assertIsInstance(x, Scopes)
+        x = Scopes()  
         self.assertEqual(x.scopes, set())
 
     def test_create2(self):                        
-        x = Scopes(dict())
-        self.assertIsInstance(x, Scopes)
+        x = Scopes(dict())        
         self.assertEqual(x.scopes, set())
 
     def test_create3(self):                        
@@ -29,19 +27,24 @@ class TestScopes(unittest.TestCase):
             x = Scopes(s)
 
     def test_create4(self):                        
-        x = Scopes.create_from_string("first:xxx,second:yyy,third:zzz")
-        self.assertIsInstance(x, Scopes)
+        x = Scopes.create_from_string("first:xxx,second:yyy,third:zzz")        
         self.assertCountEqual(x.scopes, ["first:xxx", "second:yyy", "third:zzz"])
 
     def test_create5(self):                        
-        x = Scopes.create_from_file("scopes")
-        self.assertIsInstance(x, Scopes)
+        x = Scopes.create_from_file("scopes")        
         self.assertTrue("channels:history" in x)
         
+    def test_create_ignore_empty_string_single(self):                        
+        x = Scopes.create_from_string("")
+        self.assertEqual(x.get_count(), 0)
+
+    def test_create_ignore_empty_string_multiple(self):                        
+        x = Scopes.create_from_string("ab,,x,,a")
+        self.assertEqual(x.get_count(), 3)
+
     def test_getters(self):        
         s = ["first:xxx", "second:yyy", "third:zzz"]
-        x = Scopes(s)
-        self.assertIsInstance(x, Scopes)
+        x = Scopes(s)        
         self.assertCountEqual(x.scopes, s)
         self.assertEqual(x.get_string(), "first:xxx,second:yyy,third:zzz")
     
@@ -53,8 +56,7 @@ class TestScopes(unittest.TestCase):
     """
         def test_iter(self):
         s = ["first:xxx", "second:yyy", "third:zzz"]
-        x = Scopes(s)
-        self.assertIsInstance(x, Scopes)
+        x = Scopes(s)        
         for y in x:
             self.assertIsInstance(y, str)
     """
@@ -93,9 +95,21 @@ class TestScopes(unittest.TestCase):
 
     def test_get_sorted(self):                        
         s = ["a", "d", "c", "b"]
-        x = Scopes(s)
-        self.assertIsInstance(x, Scopes)
+        x = Scopes(s)        
         self.assertEqual(x.get_sorted(), ["a", "b", "c", "d"])
+
+
+    def test_eq(self):
+        s1 = Scopes(["a", "b", "c", "d"])
+        s2 = Scopes(["a", "b", "c", "d"])
+        
+        self.assertEqual(s1, s2)
+
+    def test_ne(self):
+        s1 = Scopes(["a", "b", "c", "d"])
+        s2 = Scopes(["a", "b", "c", "e"])
+        
+        self.assertNotEqual(s1, s2)
 
 if __name__ == '__main__':
     unittest.main()

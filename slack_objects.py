@@ -889,27 +889,43 @@ class ResponseMessage(Message):
             attachments=attachments, 
             thread_ts=None, 
             mrkdwn=mrkdwn
-        )
-        if response_type is not None and response_type not in self._TYPES_DEF:            
-            raise ValueError(
-                "valid values for response_type are: " 
-                    + ', '.join(self._TYPES_DEF)
-            )
-        self._response_type = response_type
-        self._delete_original = delete_original
-        self._replace_original = replace_original
+        )       
+        self.response_type = response_type
+        self.delete_original = delete_original
+        self.replace_original = replace_original
         
     @property
     def response_type(self):
         return self._response_type
 
+    @response_type.setter
+    def response_type(self, value: str) -> None:
+        if value is not None and value not in self._TYPES_DEF:            
+            raise ValueError(
+                "valid values for response_type are: " 
+                    + ', '.join(self._TYPES_DEF)
+            )
+        self._response_type = value
+
     @property
     def delete_original(self):
         return self._delete_original
 
+    @delete_original.setter
+    def delete_original(self, value: bool) -> None:
+        if value is not None and not isinstance(value, bool):
+            raise TypeError("delete_original must be of Type bool")
+        self._delete_original = value
+
     @property
     def replace_original(self):
         return self._replace_original
+    
+    @replace_original.setter
+    def replace_original(self, value: bool) -> None:
+        if value is not None and not isinstance(value, bool):
+            raise TypeError("replace_original must be of Type bool")
+        self._replace_original = value
 
     def send(self, response_url: str):
         res = requests.post(response_url, json=self.get_array())

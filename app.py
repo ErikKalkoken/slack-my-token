@@ -20,13 +20,113 @@ SLACK_CLIENT_SECRET = os.environ["SLACK_CLIENT_SECRET"]
 SLACK_SIGNING_SECRET = os.environ["SLACK_SIGNING_SECRET"]
 FLASK_SECRET_KEY = os.environ["FLASK_SECRET_KEY"]
 
-# Slack Oauth config
-REQUIRED_SCOPES = "commands"
-
 # Slack action IDs
 AID_BUTTON_NEW = "button_new"
 AID_BUTTON_REMOVE = "button_remove"
-AID_BUTTON_DUMMY = "button_dummy"
+AID_BUTTON_REFRESH = "button_refresh"
+
+
+class Scopes:
+    
+    DELIMITER = ","
+    SCOPE_COMMANDS = "commands"
+    SCOPE_IDENTIFY = "identify"
+
+    def __init__(self, scopes: set=None):
+        if scopes is None:
+            scopes = set()
+        else:
+            scopes = set(scopes)
+                
+        if any(self.DELIMITER in s for s in scopes):
+            raise ValueError(
+                f"strings in scopes can not contain {self.DELIMITER}"
+            )
+        
+        self._scopes = scopes                    
+        
+    @property
+    def scopes(self):
+        return self._scopes
+
+    def __add__(self, s2: "Scopes") -> "Scopes":
+        s_sum = self._scopes.union(s2.scopes)
+        return Scopes(s_sum)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._scopes
+
+    def __eq__(self, other):
+        """change comparison for this object type to by value"""
+        # Objects of a different class are never equal
+        if type(other) != type(self):
+            return False
+        return self.scopes == other.scopes
+
+    def __ne__(self, other):
+        """change comparison for this object type to by value"""
+        return not self.__eq__(other)
+
+    def __str__(self) -> str:
+        return self.get_string()
+
+    def get_count(self) -> int:
+        """returns the count of scopes"""
+        return len(self.scopes)
+
+    def get_string(self) -> str:
+        scopes_list = list(self._scopes)
+        scopes_list.sort()
+        return self.DELIMITER.join(scopes_list)
+
+    def add(self, scope: str) -> None: 
+        if not isinstance(scope, str):
+            raise TypeError("scope must be of type string")
+        if self.DELIMITER in scope:
+            raise ValueError(f"scope can not contain {self.DELIMITER}")
+
+        self._scopes.add(scope)
+   
+    def diff(self, scopes_second: "Scopes") -> "Scopes":
+        if not isinstance(scopes_second, Scopes):
+            raise TypeError("scopes_second must be of type Scopes")
+        scopes_diff = self._scopes.difference(scopes_second.scopes)
+        return Scopes(scopes_diff)
+
+    def get_sorted(self) -> str:
+        scopes_list = list(self._scopes)
+        scopes_list.sort()
+        return scopes_list
+    
+    @classmethod
+    def create_from_string(cls, scopes_str: str) -> "Scopes":
+        scopes = set(scopes_str.split(cls.DELIMITER))
+        if "" in scopes:
+            scopes.remove("")
+        return cls(scopes)
+
+    @classmethod
+    def create_from_file(cls, filename: str) -> "Scopes":
+        """reads a json file and returns its contents as new object"""     
+        filename += '.json'
+        if not os.path.isfile(filename):
+            raise RuntimeError(f"file does not exist: {filename}")
+            
+        else:
+            try:
+                with open(filename, 'r', encoding="utf-8") as f:
+                    arr = json.load(f)            
+            except Exception as e:
+                raise RuntimeError(
+                     f"WARN: failed to read from {filename}: {e} "
+                )
+            scopes = set()
+            for scope in arr:
+                if scope["enabled"]:
+                    scopes.add(scope["scope"])    
+            
+        return cls(scopes)
+
 
 class Authorization:
     """A token for a Slack team and user
@@ -39,16 +139,15 @@ class Authorization:
     def __init__(
             self, 
             team_id: str, 
-            user_id: str, 
+            user_id: str,
             team_name: str, 
-            scopes: str, 
-            token: str,
-            is_owner: bool,
+            scopes: Scopes, 
+            token: str,            
             last_update: datetime = None
         ):
         # validation
-        if not isinstance(is_owner, bool):
-            raise TypeError("is_owner must be of type bool")
+        if not isinstance(scopes, Scopes):
+            raise TypeError("scopes must be of type Scopes")        
         if last_update is None:
             last_update = pytz.utc.localize(datetime.utcnow())          
         if not isinstance(last_update, datetime):
@@ -60,9 +159,8 @@ class Authorization:
         self._team_id = str(team_id)[:64]
         self._user_id = str(user_id)[:64]
         self._team_name = str(team_name)[:255]        
-        self._scopes = str(scopes)
-        self._token = str(token)[:255]
-        self._is_owner  = is_owner                
+        self._scopes = scopes
+        self._token = str(token)[:255]        
         self._last_update  = last_update
 
     @property
@@ -84,14 +182,31 @@ class Authorization:
     @property
     def token(self) -> str:
         return self._token
-
-    @property
-    def is_owner(self) -> bool:
-        return self._is_owner
-
+    
     @property
     def last_update(self) -> datetime:
         return self._last_update
+
+    def __eq__(self, other):
+        """change comparison for this object type to by value"""
+        # Objects of a different class are never equal
+        if type(other) != type(self):
+            return False
+        return ( self.team_id == other.team_id and
+            self.user_id == other.user_id and
+            self.scopes == other.scopes and
+            self.team_name == other.team_name and    
+            self.token == other.token and            
+            self.last_update == other.last_update            
+        )
+
+    def __ne__(self, other):
+        """change comparison for this object type to by value"""
+        return not self.__eq__(other)
+
+    def is_owner(self):
+        """auth is belonging to app owner if it containts commands scopes"""
+        return Scopes.SCOPE_COMMANDS in self.scopes
 
     def store(self, connection: object):
         """stores the current object to database. will overwrite existing.
@@ -111,31 +226,27 @@ class Authorization:
                         user_id, 
                         team_name, 
                         scopes, 
-                        token, 
-                        is_owner, 
+                        token,                         
                         last_update
                     ) 
-                    VALUES (%s, %s, %s, %s, %s, %s, %s) 
+                    VALUES (%s, %s, %s, %s, %s, %s) 
                     ON CONFLICT (team_id, user_id)
                     DO UPDATE SET 
                         team_name=%s, 
                         scopes=%s, 
-                        token=%s, 
-                        is_owner=%s, 
+                        token=%s,                         
                         last_update=%s
                 """
                 record = (
                     self._team_id, 
                     self._user_id, 
                     self._team_name,                 
-                    self._scopes, 
-                    self._token, 
-                    self._is_owner,
+                    self._scopes.get_string(), 
+                    self._token,                     
                     self._last_update,
                     self._team_name,                 
-                    self._scopes, 
-                    self._token,
-                    self._is_owner,
+                    self._scopes.get_string(), 
+                    self._token,                    
                     self._last_update
                 )
                 cursor.execute(sql_query, record)
@@ -196,8 +307,7 @@ class Authorization:
                         user_id, 
                         team_name, 
                         scopes, 
-                        token,
-                        is_owner,
+                        token,                        
                         last_update
                     FROM mytoken_auths 
                     WHERE team_id = %s
@@ -211,14 +321,13 @@ class Authorization:
                     )
                     obj = None
                 else:                
-                    obj = cls(
+                    obj = Authorization(
                         record[0], 
                         record[1], 
                         record[2], 
-                        record[3], 
+                        Scopes.create_from_string(record[3]), 
                         record[4], 
-                        record[5], 
-                        record[6]
+                        record[5]
                     )
             
         except (Exception, psycopg2.Error) as error :
@@ -266,101 +375,35 @@ class Authorization:
         return count
 
 
-class Scopes:
-    
-    DELIMITER = ","
-
-    def __init__(self, scopes: set=None):
-        if scopes is None:
-            scopes = set()
-        else:
-            scopes = set(scopes)
-                
-        if any(self.DELIMITER in s for s in scopes):
-            raise ValueError(
-                f"strings in scopes can not contain {self.DELIMITER}"
-            )
-        
-        self._scopes = scopes                    
-        
-    @property
-    def scopes(self):
-        return self._scopes
-
-    def __str__(self) -> str:
-        return self.get_string()
-
-    def __contains__(self, key: str) -> bool:
-        return key in self._scopes
-
-    def get_string(self) -> str:
-        scopes_list = list(self._scopes)
-        scopes_list.sort()
-        return self.DELIMITER.join(scopes_list)
-
-    def add(self, scope: str) -> None: 
-        if not isinstance(scope, str):
-            raise TypeError("scope must be of type string")
-        if self.DELIMITER in scope:
-            raise ValueError(f"scope can not contain {self.DELIMITER}")
-
-        self._scopes.add(scope)
-
-    def __add__(self, s2: "Scopes") -> "Scopes":
-        s_sum = self._scopes.union(s2.scopes)
-        return Scopes(s_sum)
-
-    def diff(self, scopes_second: "Scopes") -> "Scopes":
-        if not isinstance(scopes_second, Scopes):
-            raise TypeError("scopes_second must be of type Scopes")
-        scopes_diff = self._scopes.difference(scopes_second.scopes)
-        return Scopes(scopes_diff)
-
-    def get_sorted(self) -> str:
-        scopes_list = list(self._scopes)
-        scopes_list.sort()
-        return scopes_list
-    
-    @classmethod
-    def create_from_string(cls, scopes_str: str) -> "Scopes":
-        scopes = scopes_str.split(cls.DELIMITER)
-        return cls(scopes)
-
-    @classmethod
-    def create_from_file(cls, filename: str) -> "Scopes":
-        """reads a json file and returns its contents as new object"""     
-        filename += '.json'
-        if not os.path.isfile(filename):
-            raise RuntimeError(f"file does not exist: {filename}")
-            
-        else:
-            try:
-                with open(filename, 'r', encoding="utf-8") as f:
-                    arr = json.load(f)            
-            except Exception as e:
-                raise RuntimeError(
-                     f"WARN: failed to read from {filename}: {e} "
-                )
-            scopes = set()
-            for scope in arr:
-                if scope["enabled"]:
-                    scopes.add(scope["scope"])    
-            
-        return cls(scopes)
-
-
 # flask app
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
 
 @app.route("/", methods=["GET"])
-def draw_select_scopes():
-    """shows the page for selecting scopes"""
-    if "scopes" in request.args:
-        scopes_preselected = Scopes.create_from_string(request.args["scopes"])
+def web_select_scopes():
+    """shows the page for selecting scopes
+    If called with no query params, will assume first install 
+    and preselect the commands scope to enable slash commands for the app
+    If called with team_id and user_id will add scopes to existing ones    
+    """
+    
+    if "team_id" in request.args and "user_id" in request.args:
+        team_id = request.args["team_id"]
+        user_id = request.args["user_id"]
+        with psycopg2.connect(DATABASE_URL) as connection:
+            my_auth = Authorization.fetchFromDb(
+                connection, 
+                team_id,
+                user_id
+            )
+        if my_auth is None:
+            scopes_preselected = Scopes([Scopes.SCOPE_IDENTIFY])
+        else:
+            scopes_preselected = my_auth.scopes
     else:
-        scopes_preselected = Scopes()
-    #scopes_preselected.add("commands")
+        scopes_preselected = Scopes(
+            [Scopes.SCOPE_IDENTIFY, Scopes.SCOPE_COMMANDS]
+        )
     session["scopes_preselected"] = scopes_preselected.get_string()
 
     scopes_all = Scopes.create_from_file("scopes")        
@@ -371,8 +414,9 @@ def draw_select_scopes():
         scopes_remain=scopes_remain.get_sorted()
     )
 
+
 @app.route("/process", methods=["POST"])
-def draw_confirm_scopes():    
+def web_confirm_scopes():    
     scopes_added = Scopes(request.form.getlist("scope"))
     scopes_preselected = Scopes.create_from_string(session["scopes_preselected"])
     scopes_all = scopes_added + scopes_preselected
@@ -389,8 +433,9 @@ def draw_confirm_scopes():
         scopes=scopes_all.get_sorted()
     )
 
+
 @app.route("/finish_auth", methods=["GET", "POST"])
-def draw_finished_auth():
+def web_finished_auth():
     """Exchange to oauth code with a token and store it"""
     
     error = None
@@ -415,31 +460,33 @@ def draw_finished_auth():
                 client_id=SLACK_CLIENT_ID,
                 client_secret=SLACK_CLIENT_SECRET,
                 code=auth_code
-            )    
-            print(api_response)
+            )                
+            assert api_response["ok"]
             team_id = api_response["team_id"]
             user_id = api_response["user_id"]
             team_name = api_response["team_name"]            
-            scopes_str = api_response["scope"]
+            scopes = Scopes.create_from_string(api_response["scope"])
             access_token = api_response["access_token"]
             
-            # store the received token to our DB for later use                
-            with psycopg2.connect(DATABASE_URL) as connection:                
-                my_token = Authorization(
+            # store the received auth to our DB for later use
+            # will be marked as owner if it has the commands scope
+            with psycopg2.connect(DATABASE_URL) as connection:
+                my_auth = Authorization(
                     team_id,
                     user_id,
                     team_name,                
-                    scopes_str,
-                    access_token,
-                    False
+                    scopes,
+                    access_token
                 )
-                my_token.store(connection)
+                my_auth.store(connection)
             
+            restart_url = f"/?team_id={ team_id }&user_id={ user_id }"
             return render_template(
-                'finished.html.j2',         
-                team_name=team_name,                
-                token=my_token.token,
-                scopes_str=scopes_str
+                'finished.html.j2',                         
+                team_name=team_name,
+                token=my_auth.token,
+                scopes_str=scopes.get_string(),
+                restart_url=restart_url
             )
         except (Exception, psycopg2.Error) as error :
             error = error
@@ -486,7 +533,7 @@ def is_slack_request_valid(
 
 
 @app.route('/slash', methods=['POST'])
-def slash_request():                
+def slack_slash_request():                
     """endpoint for receiving all slash command requests from Slack"""
     try:                
         if not is_slack_request_valid(
@@ -496,68 +543,16 @@ def slash_request():
                 signing_secret=SLACK_SIGNING_SECRET):
             print("Invalid Slack request")
             abort(400)
-        
+
         # get token for current workspace
         team_id = request.form.get("team_id")
         user_id = request.form.get("user_id")
-        with psycopg2.connect(DATABASE_URL) as connection:
-            my_token = Authorization.fetchFromDb(
-                connection, 
-                team_id,
-                user_id
-            )
-        if my_token is None:                        
-            url = request.url_root            
-            blocks = Blocks([
-                Section("You have not yet created a token."),
-                ActionsBlock([
-                    Button(
-                        "Create Token", 
-                        AID_BUTTON_NEW, 
-                        url=url
-                    )
-                ])
-            ])
 
-        else :              
-            scopes = Scopes.create_from_string(my_token.scopes)
-            # create response                                
-            url = request.url_root + "?scopes=" + scopes.get_string()
-            blocks = Blocks([
-                Section(
-                    f"Your token is:\n>`{my_token.token}`\n"
-                    + f"with these scopes:\n>`{scopes.get_string()}`"
-                ),
-                ActionsBlock([
-                    Button(
-                        "Add Scopes", 
-                        AID_BUTTON_NEW, 
-                        url=url
-                    ),              
-                    Button(
-                        "Delete Token", 
-                        AID_BUTTON_REMOVE, 
-                        style=Button.STYLE_DANGER, 
-                        confirm=ConfirmationDialog(
-                            "Are you sure?",
-                            "Do you really want to delete your token?",
-                            "Delete Token",
-                            "Cancel"
-                        )
-                    ),
-                    Button(
-                        "Dummy", 
-                        AID_BUTTON_DUMMY
-                    )
-                ])
-            ])
-        
-        response_msg = ResponseMessage(
-            blocks = blocks
-        )
-        
-        return Response(response_msg.get_json(), mimetype='application/json')
-            
+        if team_id is not None and user_id is not None:            
+            return Response(
+                create_main_menu(team_id, user_id).get_json(), 
+                mimetype='application/json'
+            )
             
     except Exception as error:
         print("ERROR: ", error)        
@@ -567,9 +562,76 @@ def slash_request():
         raise error
         # return Response(response_json, mimetype='application/json')
 
+    return ""
+
+
+def create_main_menu(team_id: str, user_id: str) -> ResponseMessage:
+    """creates main menu"""
+    with psycopg2.connect(DATABASE_URL) as connection:
+        my_auth = Authorization.fetchFromDb(
+            connection, 
+            team_id,
+            user_id
+        )
+    url = f"{request.url_root }?team_id={team_id}&user_id={user_id}" 
+    if my_auth is None:                                    
+        blocks = Blocks([
+            Section("You have not yet created a token."),
+            ActionsBlock([
+                Button(
+                    "Create Token", 
+                    AID_BUTTON_NEW, 
+                    url=url
+                ),
+                Button(
+                    "Refresh", 
+                    AID_BUTTON_REFRESH
+                )
+            ])
+        ])
+
+    else :                          
+        # create response                                            
+        text = (f"Your token is:\n>`{my_auth.token}`\n"
+            + f"with these scopes:\n>`{my_auth.scopes.get_string()}`\n")            
+        actions = ActionsBlock([
+            Button(
+                "Add Scopes", 
+                AID_BUTTON_NEW, 
+                url=url
+            )
+        ])
+        # only non owners can delete their token
+        if not my_auth.is_owner():
+            actions.add(
+                Button(
+                    "Delete Token", 
+                    AID_BUTTON_REMOVE, 
+                    style=Button.STYLE_DANGER, 
+                    confirm=ConfirmationDialog(
+                        "Are you sure?",
+                        "Do you really want to delete your token?",
+                        "Delete Token",
+                        "Cancel"
+            )))
+        actions.add(
+            Button(
+                "Refresh", 
+                AID_BUTTON_REFRESH
+        ))
+        blocks = Blocks([
+            Section(
+                text
+            ),
+            actions
+        ])
+    
+    return ResponseMessage(
+        blocks = blocks
+    )
 
 @app.route('/interactive', methods=['POST'])
-def interactive_request():                
+def slack_interactive_request():                
     """endpoint for receiving all slash command requests from Slack"""    
     if not is_slack_request_valid(
             ts=request.headers["X-Slack-Request-Timestamp"],
@@ -579,28 +641,36 @@ def interactive_request():
         print("Invalid Slack request")
         abort(400)
 
-    if "payload" in request.form:            
-        
+    if "payload" in request.form:                            
+        # get context from current request
         payload = json.loads(request.form["payload"])
-        # print(payload)        
-        
-        # get token for current user
+        # print(payload)                
         team_id = payload["team"]["id"]
-        user_id = payload["user"]["id"]
-
-        
+        user_id = payload["user"]["id"]        
         action_id = payload["actions"][0]["action_id"]
         
-        if action_id == AID_BUTTON_REMOVE:
-            # lets delete the old token
-            try:
-                with psycopg2.connect(DATABASE_URL) as connection:
-                    token = Authorization.fetchFromDb(
-                        connection, 
-                        team_id,
-                        user_id
-                    )                
-                    token.delete(connection)
+        try:            
+            with psycopg2.connect(DATABASE_URL) as connection:
+                # get token for current user
+                my_auth = Authorization.fetchFromDb(
+                    connection, 
+                    team_id,
+                    user_id
+                )                
+                if action_id == AID_BUTTON_REMOVE:
+                    # lets delete the old token
+                    if my_auth is None:
+                        raise RuntimeError("could not find auth to delete")
+                    
+                    # revoke token
+                    client = slack.WebClient(token=my_auth.token)
+                    res = client.auth_revoke()
+                    assert res["ok"]
+                    
+                    # remove auth from storage
+                    my_auth.delete(connection)
+                    
+                    # inform user
                     response_msg = ResponseMessage(
                         text = "Your token has been deleted.",
                         replace_original=True,
@@ -608,20 +678,20 @@ def interactive_request():
                     )
                     response_msg.send(payload["response_url"])
                     
-                    client = slack.WebClient(token=token.token)
-                    res = client.auth_revoke()
-                    assert res["ok"]
-                       
-            except Exception as error:
-                print("ERROR: ", error)
-                abort(500)
-        
-        elif action_id == AID_BUTTON_DUMMY:
-            response_msg = ResponseMessage(
-                text = "This is a dummy response"
-            )
-            response_msg.send(payload["response_url"])
+                    # redraw menu
+                    # response_msg = create_main_menu(team_id, user_id)
+                    # response_msg.send(payload["response_url"])
+                    
+            
+                elif action_id == AID_BUTTON_REFRESH:                    
+                    response_msg = create_main_menu(team_id, user_id)
+                    response_msg.replace_original = True
+                    response_msg.delete_original = True
+                    response_msg.send(payload["response_url"])
 
+        except Exception as error:
+            print("ERROR: ", error)
+            abort(500)
                 
     return ""
 

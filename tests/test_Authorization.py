@@ -11,7 +11,7 @@ parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir)
 from datetime import datetime
 import pytz
-from app import Authorization
+from app import Authorization, Scopes
 
 # database connection
 DATABASE_URL = os.environ['DATABASE_URL']
@@ -49,17 +49,15 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U101", 
             "team1", 
-            "scope1", 
-            "token1", 
-            True, 
+            Scopes("scope1"), 
+            "token1",         
             dt
         )
         self.assertEqual(x.team_id, "TEST01")
         self.assertEqual(x.user_id, "U101")
         self.assertEqual(x.team_name, "team1")        
-        self.assertEqual(x.scopes, "scope1")
-        self.assertEqual(x.token, "token1")
-        self.assertEqual(x.is_owner, True)
+        self.assertEqual(x.scopes, Scopes("scope1"))
+        self.assertEqual(x.token, "token1")        
         self.assertEqual(x.last_update, dt)
 
 
@@ -69,9 +67,8 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U101", 
             "team1", 
-            "scope1", 
-            "token1", 
-            True, 
+            Scopes("scope1"), 
+            "token1",          
             dt
         )
         
@@ -83,9 +80,8 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U102", 
             "team2", 
-            "scope2", 
-            "token2", 
-            False, 
+            Scopes("scope2"), 
+            "token2",             
             dt
         )        
         y.store(self.connection)
@@ -97,9 +93,8 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U102", 
             "team1", 
-            "scope1", 
-            "token1", 
-            True
+            Scopes("scope1"), 
+            "token1"
         )
         
         x.store(self.connection)
@@ -110,9 +105,8 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U101", 
             "team1", 
-            "scope1", 
-            "token1", 
-            True
+            Scopes("scope1"), 
+            "token1"
         )        
         x.store(self.connection)
         
@@ -121,8 +115,7 @@ class TestAuthorization(unittest.TestCase):
         self.assertEqual(x.user_id, y.user_id)
         self.assertEqual(x.team_name, y.team_name)        
         self.assertEqual(x.scopes, y.scopes)
-        self.assertEqual(x.token, y.token)
-        self.assertEqual(x.is_owner, y.is_owner)
+        self.assertEqual(x.token, y.token)        
         self.assertEqual(x.last_update, y.last_update)
     
 
@@ -139,9 +132,8 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U101", 
             "team1", 
-            "scope1", 
-            "token1", 
-            True, 
+            Scopes("scope1"), 
+            "token1",
             pytz.utc.localize(datetime.utcnow())
         )        
         x.store(self.connection)
@@ -172,9 +164,8 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U101", 
             "team1", 
-            "scope1", 
-            "token1", 
-            True
+            Scopes("scope1"), 
+            "token1"
         )
         
         x.store(self.connection)
@@ -183,9 +174,8 @@ class TestAuthorization(unittest.TestCase):
             "TEST01", 
             "U102", 
             "team2", 
-            "scope2", 
-            "token2", 
-            False
+            Scopes("scope2"), 
+            "token2"
         )        
         y.store(self.connection)
 
@@ -197,6 +187,25 @@ class TestAuthorization(unittest.TestCase):
             2
         )
 
+    def test_is_owner_true(self):
+        x = Authorization(
+            "TEST01", 
+            "U101", 
+            "team1", 
+            Scopes(["scope1", Scopes.SCOPE_COMMANDS]), 
+            "token1"
+        )        
+        self.assertTrue(x.is_owner())
+
+    def test_is_owner_false(self):
+        x = Authorization(
+            "TEST01", 
+            "U101", 
+            "team1", 
+            Scopes(["scope1"]), 
+            "token1"
+        )        
+        self.assertFalse(x.is_owner())
 
 if __name__ == '__main__':
     unittest.main()
