@@ -2,13 +2,22 @@
 
 {% block body %}
 
-    <p>Here are the scopes you selected. Please click the button below to create a token with these scopes.</p>
+    {% if team_name != None %}
+        <p><strong>{{ user_name }}</strong>, here are the scopes you selected.
+        Please click the button below to add them to your token for workspace <strong>{{ team_name }}</strong>.</p>
+    {% else %}
+        <p>Here are the scopes you selected. Please click the button below to create a token with these scopes.</p>
+    {% endif %}
     <ul>
         {% for scope in scopes %}
             <li>{{ scope }}</li>
         {% endfor %}
     </ul>
-    <a class="btn btn-outline-primary" href="{{ oauth_url }}">Add to Slack</a>    
+    {% if team_name != None %}
+        <a class="btn btn-outline-primary" href="{{ oauth_url }}">Add to Token</a>    
+    {% else %}
+        <a class="btn btn-outline-primary" href="{{ oauth_url }}">Add to Slack</a>    
+    {% endif %}
     <a class="btn btn-outline-secondary" href="/">Back</a>
     
 {% endblock %}

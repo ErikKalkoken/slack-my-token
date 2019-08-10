@@ -42,6 +42,16 @@ class TestAuthorization(unittest.TestCase):
             cursor.execute(sql_query)
             cls.connection.commit()
 
+    def test_create_minimal(self):        
+        x = Authorization(
+            "TEST01", 
+            "U101", 
+            "team1",
+            "user1",
+            Scopes("scope1"), 
+            "token1"
+        )
+    
 
     def test_getters(self):
         dt = pytz.utc.localize(datetime.utcnow())
@@ -216,6 +226,21 @@ class TestAuthorization(unittest.TestCase):
             "token1"
         )        
         self.assertFalse(x.is_owner())
+
+    def test_json_serialization(self):
+        dt = pytz.utc.localize(datetime.utcnow())
+        x = Authorization(
+            "TEST01", 
+            "U101", 
+            "team1", 
+            "user1",
+            Scopes(["scope1"]), 
+            "token1",
+            dt
+        )
+        json_str = x.json_dumps()
+        y = Authorization.json_loads(json_str)
+        self.assertEqual(x, y)
 
 if __name__ == '__main__':
     unittest.main()

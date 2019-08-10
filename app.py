@@ -26,6 +26,15 @@ AID_BUTTON_REMOVE = "button_remove"
 AID_BUTTON_REFRESH = "button_refresh"
 
 
+##########################################
+# Utility functions
+#
+
+
+##########################################
+# Classes
+#
+
 class Scopes:
     
     DELIMITER = ","
@@ -215,6 +224,36 @@ class Authorization:
         """auth is belonging to app owner if it containts commands scopes"""
         return Scopes.SCOPE_COMMANDS in self.scopes
 
+    def json_dumps(self) -> str:        
+        """returns the JSON representation of this object as string"""
+        arr = {
+            "team_id": self.team_id,
+            "user_id": self.user_id,
+            "team_name": self.team_name,
+            "user_name": self.user_name,
+            "scopes": self.scopes.get_string(),
+            "token": self.token,
+            "last_update": self.last_update.isoformat()
+        }
+        return json.dumps(arr)
+
+    @classmethod
+    def json_loads(cls, json_str: str) -> "Authorization":
+        """returns a new object from the provided JSON representation"""
+        arr = json.loads(json_str)
+        tz_utc = pytz.timezone("UTC")
+        return Authorization(
+            arr["team_id"],
+            arr["user_id"],
+            arr["team_name"],
+            arr["user_name"],
+            Scopes.create_from_string(arr["scopes"]),
+            arr["token"],
+            datetime.fromisoformat(arr["last_update"])
+        )
+
+    #############
+    # DB related methods        
     def store(self, connection: object):
         """stores the current object to database. will overwrite existing.
 
@@ -388,7 +427,10 @@ class Authorization:
         return count
 
 
-# flask app
+##########################################
+# Flask app
+#
+
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
 
@@ -411,39 +453,79 @@ def web_select_scopes():
             )
         if my_auth is None:
             scopes_preselected = Scopes([Scopes.SCOPE_IDENTIFY])
+            team_name = None
+            user_name = None
         else:
             scopes_preselected = my_auth.scopes
+            team_name = my_auth.team_name
+            user_name = my_auth.user_name
+            session["team_id"] = team_id
+            session["user_id"] = user_id
     else:
         scopes_preselected = Scopes(
             [Scopes.SCOPE_IDENTIFY, Scopes.SCOPE_COMMANDS]
         )
+        team_name = None
+        user_name = None
+        
     session["scopes_preselected"] = scopes_preselected.get_string()
-
     scopes_all = Scopes.create_from_file("scopes")        
     scopes_remain = scopes_all.diff(scopes_preselected)
     return render_template(
         'select.html.j2', 
         scopes_preselected=scopes_preselected.get_sorted(),
-        scopes_remain=scopes_remain.get_sorted()
+        scopes_remain=scopes_remain.get_sorted(),
+        team_name=team_name,
+        user_name=user_name
+
     )
 
 
 @app.route("/process", methods=["POST"])
 def web_confirm_scopes():    
-    scopes_added = Scopes(request.form.getlist("scope"))
+    if "scopes_preselected" not in session:
+        print("session incomplete")
+        abort(500)
+    
+    if "team_id" in session and "user_id" in session:
+        # load current auth to display name on web page
+        team_id = session["team_id"]
+        user_id = session["user_id"]        
+        with psycopg2.connect(DATABASE_URL) as connection:
+            my_auth = Authorization.fetchFromDb(
+                connection, 
+                team_id,
+                user_id
+            )
+    else:
+        my_auth = None
+    
+    if my_auth is not None:
+        team_name = my_auth.team_name
+        user_name = my_auth.user_name
+    else:
+        team_name = None
+        user_name = None
+    
     scopes_preselected = Scopes.create_from_string(session["scopes_preselected"])
+    scopes_added = Scopes(request.form.getlist("scope"))    
     scopes_all = scopes_added + scopes_preselected
+   
     state = secrets.token_urlsafe(20)
     session["state"] = state
+
     oauth_url = (f'https://slack.com/oauth/authorize?scope={ scopes_all.get_string() }' 
         + f'&client_id={ SLACK_CLIENT_ID }'
         + f'&state={ state }'
         )
-        
+    if my_auth is not None:
+        oauth_url += f"&team={ my_auth.team_id }"
     return render_template(
         'confirm.html.j2',         
         oauth_url=oauth_url,
-        scopes=scopes_all.get_sorted()
+        scopes=scopes_all.get_sorted(),
+        team_name=team_name,
+        user_name=user_name
     )
 
 
@@ -715,6 +797,9 @@ def slack_interactive_request():
     return ""
 
 
-# to run this flask app locally
+##########################################
+# Main - for running this app locally
+#
+
 if __name__ == '__main__':
     app.run(debug=True, port=8000) 
