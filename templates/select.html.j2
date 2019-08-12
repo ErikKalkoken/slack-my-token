@@ -1,4 +1,9 @@
 {% extends "base.html.j2" %}
+{% if team_name != None %}
+    {% set page_title = 'Add Scopes (1/3)' %}
+{% else %}
+    {% set page_title = 'Install app & select Scopes' %}
+{% endif%}
 
 {% block head %}
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='vendor/multijs/multi.min.css') }}">

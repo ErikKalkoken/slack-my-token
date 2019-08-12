@@ -20,11 +20,17 @@ SLACK_CLIENT_SECRET = os.environ["SLACK_CLIENT_SECRET"]
 SLACK_SIGNING_SECRET = os.environ["SLACK_SIGNING_SECRET"]
 FLASK_SECRET_KEY = os.environ["FLASK_SECRET_KEY"]
 
+# session constants
+SESSION_INSTALL_TYPE = "install_type"
+SESSION_STATE = "state"
+
+INSTALL_TYPE_ADD = "add_scopes"
+INSTALL_TYPE_NEW = "new_install"
+
 # Slack action IDs
 AID_BUTTON_NEW = "button_new"
 AID_BUTTON_REMOVE = "button_remove"
 AID_BUTTON_REFRESH = "button_refresh"
-
 
 ##########################################
 # Utility functions
@@ -467,18 +473,32 @@ def web_select_scopes():
         )
         team_name = None
         user_name = None
-        
+
+    state = secrets.token_urlsafe(20)
+    session[SESSION_STATE] = state
+
     session["scopes_preselected"] = scopes_preselected.get_string()
     scopes_all = Scopes.create_from_file("scopes")        
     scopes_remain = scopes_all.diff(scopes_preselected)
-    return render_template(
-        'select.html.j2', 
-        scopes_preselected=scopes_preselected.get_sorted(),
-        scopes_remain=scopes_remain.get_sorted(),
-        team_name=team_name,
-        user_name=user_name
-
-    )
+    if team_name is not None:
+        session[SESSION_INSTALL_TYPE] = INSTALL_TYPE_ADD
+        return render_template(
+            'select.html.j2', 
+            scopes_preselected=scopes_preselected.get_sorted(),
+            scopes_remain=scopes_remain.get_sorted(),
+            team_name=team_name,
+            user_name=user_name
+        )
+    else:
+        session[SESSION_INSTALL_TYPE] = INSTALL_TYPE_NEW
+        oauth_url = (f'https://slack.com/oauth/authorize?scope={ scopes_preselected.get_string() }' 
+            + f'&client_id={ SLACK_CLIENT_ID }'
+            + f'&state={ state }'
+            )
+        return render_template(
+            'install_start.html.j2',
+            oauth_url=oauth_url
+        )
 
 
 @app.route("/process", methods=["POST"])
@@ -510,9 +530,8 @@ def web_confirm_scopes():
     scopes_preselected = Scopes.create_from_string(session["scopes_preselected"])
     scopes_added = Scopes(request.form.getlist("scope"))    
     scopes_all = scopes_added + scopes_preselected
-   
-    state = secrets.token_urlsafe(20)
-    session["state"] = state
+       
+    state = session[SESSION_STATE]
 
     oauth_url = (f'https://slack.com/oauth/authorize?scope={ scopes_all.get_string() }' 
         + f'&client_id={ SLACK_CLIENT_ID }'
@@ -537,7 +556,7 @@ def web_finished_auth():
     # verify the state            
     if "error" in request.args:
         error = request.args["error"]
-    elif (request.args["state"] != session["state"]):
+    elif (request.args["state"] != session[SESSION_STATE]):
         error = "Invalid state"
     elif "code" not in request.args:
         error = "no code returned"
@@ -581,14 +600,16 @@ def web_finished_auth():
                 )
                 my_auth.store(connection)
             
-            restart_url = f"/?team_id={ team_id }&user_id={ user_id }"
+            restart_url = f"/?team_id={ team_id }&user_id={ user_id }"            
             return render_template(
                 'finished.html.j2',                         
                 team_name=team_name,
                 token=my_auth.token,
                 scopes_str=scopes.get_string(),
-                restart_url=restart_url
+                restart_url=restart_url,
+                isNewInstall=(session[SESSION_INSTALL_TYPE] == INSTALL_TYPE_NEW)
             )
+            
         except (Exception, psycopg2.Error) as error :
             error = error
             raise error

@@ -1,0 +1,7 @@
+{% extends "base.html.j2" %}
+{% set page_title = 'Install app (1/2)' %}
+
+{% block body %}
+    <p>Click the button below to add this app to your Slack workspace</p>
+    <a class="btn btn-outline-primary" href="{{ oauth_url }}">Add to Slack</a>
+{% endblock %}
