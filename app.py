@@ -2,7 +2,7 @@
 
 import os
 import slack
-from flask import Flask, json, request, render_template, session, Response, abort
+from flask import Flask, json, request, render_template, session, Response, abort, redirect
 import psycopg2
 import urllib
 import secrets
@@ -23,6 +23,8 @@ FLASK_SECRET_KEY = os.environ["FLASK_SECRET_KEY"]
 # session constants
 SESSION_INSTALL_TYPE = "install_type"
 SESSION_STATE = "state"
+SESSION_TEAM_ID = "team_id"
+SESSION_USER_ID = "user_id"
 
 INSTALL_TYPE_ADD = "add_scopes"
 INSTALL_TYPE_NEW = "new_install"
@@ -35,6 +37,33 @@ AID_BUTTON_REFRESH = "button_refresh"
 ##########################################
 # Utility functions
 #
+
+def is_slack_request_valid(
+        ts: str, 
+        body: str, 
+        signature: str, 
+        signing_secret:str ) -> bool:
+    """verifies a request with signed secret approach
+    
+    Args:
+        ts = timestamp of request from X-Slack-Request-Timestamp header
+        body = string of request body
+        signature = signature of request from X-Slack-Signature header
+        signing_secret = signing secret of this app
+    
+    Returns:
+        true if signatures match
+        false otherwise
+    """
+    version = "v0"        
+    base_string = ":".join([version, ts, body])    
+    h = hmac.new(
+        signing_secret.encode("utf-8"), 
+        base_string.encode("utf-8"), 
+        hashlib.sha256 
+    )
+    my_signature = version + "=" + h.hexdigest()
+    return my_signature == signature    
 
 
 ##########################################
@@ -433,12 +462,13 @@ class Authorization:
         return count
 
 
-##########################################
-# Flask app
-#
-
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
+
+
+##########################################
+# Web App
+#
 
 @app.route("/", methods=["GET"])
 def web_select_scopes():
@@ -501,7 +531,7 @@ def web_select_scopes():
         )
 
 
-@app.route("/process", methods=["POST"])
+@app.route("/confirm", methods=["POST"])
 def web_confirm_scopes():    
     if "scopes_preselected" not in session:
         print("session incomplete")
@@ -539,12 +569,15 @@ def web_confirm_scopes():
         )
     if my_auth is not None:
         oauth_url += f"&team={ my_auth.team_id }"
+    
+    restart_url = f"/?team_id={ team_id }&user_id={ user_id }"
     return render_template(
         'confirm.html.j2',         
         oauth_url=oauth_url,
+        restart_url=restart_url,
         scopes=scopes_all.get_sorted(),
         team_name=team_name,
-        user_name=user_name
+        user_name=user_name        
     )
 
 
@@ -599,16 +632,12 @@ def web_finished_auth():
                     access_token
                 )
                 my_auth.store(connection)
+
+            session[SESSION_TEAM_ID] = team_id
+            session[SESSION_USER_ID] = user_id
             
-            restart_url = f"/?team_id={ team_id }&user_id={ user_id }"            
-            return render_template(
-                'finished.html.j2',                         
-                team_name=team_name,
-                token=my_auth.token,
-                scopes_str=scopes.get_string(),
-                restart_url=restart_url,
-                isNewInstall=(session[SESSION_INSTALL_TYPE] == INSTALL_TYPE_NEW)
-            )
+            ## redirect to next page
+            return redirect("/complete", code=302)
             
         except (Exception, psycopg2.Error) as error :
             error = error
@@ -626,33 +655,42 @@ def web_finished_auth():
         )
     
 
-def is_slack_request_valid(
-        ts: str, 
-        body: str, 
-        signature: str, 
-        signing_secret:str ) -> bool:
-    """verifies a request with signed secret approach
-    
-    Args:
-        ts = timestamp of request from X-Slack-Request-Timestamp header
-        body = string of request body
-        signature = signature of request from X-Slack-Signature header
-        signing_secret = signing secret of this app
-    
-    Returns:
-        true if signatures match
-        false otherwise
-    """
-    version = "v0"        
-    base_string = ":".join([version, ts, body])    
-    h = hmac.new(
-        signing_secret.encode("utf-8"), 
-        base_string.encode("utf-8"), 
-        hashlib.sha256 
-    )
-    my_signature = version + "=" + h.hexdigest()
-    return my_signature == signature    
+@app.route("/complete", methods=["GET"])
+def web_install_complete():
+    """Show user installation result"""
 
+    if "team_id" not in session or "user_id" not in session:
+        raise RuntimeError("Session corrupt")
+
+    team_id = session[SESSION_TEAM_ID]
+    user_id = session[SESSION_USER_ID]
+
+    with psycopg2.connect(DATABASE_URL) as connection:
+        my_auth = Authorization.fetchFromDb(
+            connection, 
+            team_id,
+            user_id
+        )
+    
+    if my_auth is None:
+        raise RuntimeError(
+            "Can not find auth for current user"
+        )
+
+    restart_url = f"/?team_id={ team_id }&user_id={ user_id }"            
+    return render_template(
+        'finished.html.j2',                         
+        team_name=my_auth.team_name,
+        token=my_auth.token,
+        scopes_str=my_auth.scopes.get_string(),
+        restart_url=restart_url,
+        isNewInstall=(session[SESSION_INSTALL_TYPE] == INSTALL_TYPE_NEW)
+    )
+
+
+##########################################
+# Slack app
+#
 
 @app.route('/slash', methods=['POST'])
 def slack_slash_request():                
@@ -672,7 +710,7 @@ def slack_slash_request():
 
         if team_id is not None and user_id is not None:            
             return Response(
-                create_main_menu(team_id, user_id).get_json(), 
+                slack_create_main_menu(team_id, user_id).get_json(), 
                 mimetype='application/json'
             )
             
@@ -687,7 +725,7 @@ def slack_slash_request():
     return ""
 
 
-def create_main_menu(team_id: str, user_id: str) -> ResponseMessage:
+def slack_create_main_menu(team_id: str, user_id: str) -> ResponseMessage:
     """creates main menu"""
     with psycopg2.connect(DATABASE_URL) as connection:
         my_auth = Authorization.fetchFromDb(
@@ -806,7 +844,7 @@ def slack_interactive_request():
                     
             
                 elif action_id == AID_BUTTON_REFRESH:                    
-                    response_msg = create_main_menu(team_id, user_id)
+                    response_msg = slack_create_main_menu(team_id, user_id)
                     response_msg.replace_original = True
                     response_msg.delete_original = True
                     response_msg.send(payload["response_url"])

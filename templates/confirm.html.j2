@@ -14,11 +14,9 @@
             <li>{{ scope }}</li>
         {% endfor %}
     </ul>
-    {% if team_name != None %}
-        <a class="btn btn-outline-primary" href="{{ oauth_url }}">Add to Token</a>    
-    {% else %}
-        <a class="btn btn-outline-primary" href="{{ oauth_url }}">Add to Slack</a>    
-    {% endif %}
-    <a class="btn btn-outline-secondary" href="/">Back</a>
+    
+    <a class="btn btn-outline-primary" href="{{ oauth_url }}">Add to Token</a>    
+    
+    <a class="btn btn-outline-secondary" href="{{ restart_url }}">Back</a>
     
 {% endblock %}
