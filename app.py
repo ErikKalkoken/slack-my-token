@@ -30,13 +30,20 @@ SESSION_SCOPES_PRESELECTED = "scopes_preselected"
 INSTALL_TYPE_ADD = "add_scopes"
 INSTALL_TYPE_NEW = "new_install"
 
-# query constants
+# Oauth query constants
+URL_OAUTH_AUTH = "https://slack.com/oauth/authorize"
+QUERY_OAUTH_CODE = "code"
+QUERY_OAUTH_CLIENT_ID = "client_id"
+QUERY_OAUTH_CLIENT_SECRET = "client_secret"
+QUERY_OAUTH_ERROR = "error"
+QUERY_OAUTH_SCOPE = "scope"
+QUERY_OAUTH_STATE = "state"
+QUERY_OAUTH_TEAM = "team"
+
+# mytoken query constants
 QUERY_SCOPES = "scopes"
 QUERY_TEAM_ID = "team_id"
 QUERY_USER_ID = "user_id"
-QUERY_OAUTH_CODE = "code"
-QUERY_OAUTH_STATE = "state"
-QUERY_OAUTH_ERROR = "error"
 
 # Slack action IDs
 AID_BUTTON_NEW = "button_new"
@@ -576,10 +583,12 @@ def web_select_scopes():
         team_name = None
         user_name = None
     
-        oauth_url = (f'https://slack.com/oauth/authorize?scope={ scopes_preselected.get_string() }' 
-            + f'&client_id={ SLACK_CLIENT_ID }'
-            + f'&state={ session[SESSION_STATE] }'
-            )
+        query = {            
+            QUERY_OAUTH_CLIENT_ID: SLACK_CLIENT_ID,            
+            QUERY_OAUTH_SCOPE: scopes_preselected.get_string(),
+            QUERY_OAUTH_STATE: session[SESSION_STATE],            
+        }
+        oauth_url = URL_OAUTH_AUTH + "?" + urllib.parse.urlencode(query)
         return render_template(
             'install_start.html.j2',
             oauth_url=oauth_url
@@ -619,16 +628,22 @@ def web_confirm_scopes():
         
     state = session[SESSION_STATE]
 
-    oauth_url = (f'https://slack.com/oauth/authorize?scope={ scopes_all.get_string() }' 
-        + f'&client_id={ SLACK_CLIENT_ID }'
-        + f'&state={ state }'
-        )
+    query = {            
+        QUERY_OAUTH_CLIENT_ID: SLACK_CLIENT_ID,            
+        QUERY_OAUTH_SCOPE: scopes_all.get_string,
+        QUERY_OAUTH_STATE: session[SESSION_STATE],            
+    }
     if my_auth is not None:
-        oauth_url += f"&team={ my_auth.team_id }"
-    
-    restart_url = (f"/?{ QUERY_TEAM_ID }={ team_id }"
-        + f"&{ QUERY_USER_ID}={ user_id }"
-        + f"&{ QUERY_SCOPES}={ scopes_added.get_string() }")
+        query["team"] = my_auth.team_id
+    oauth_url = URL_OAUTH_AUTH + "?" + urllib.parse.urlencode(query)
+
+    query = {
+        QUERY_TEAM_ID: team_id,
+        QUERY_USER_ID: user_id,
+        QUERY_SCOPES: scopes_added.get_string()
+    }
+    restart_url = "/?" + urllib.parse.urlencode(query)
+
     return render_template(
         'confirm.html.j2',         
         oauth_url=oauth_url,
@@ -739,7 +754,12 @@ def web_install_complete():
             "Can not find auth for current user"
         )
 
-    restart_url = f"/?team_id={ team_id }&user_id={ user_id }"            
+    query = {
+        QUERY_TEAM_ID: team_id,
+        QUERY_USER_ID: user_id
+    }
+    restart_url = "/?" + urllib.parse.urlencode(query)
+    
     return render_template(
         'finished.html.j2',                         
         team_name=my_auth.team_name,
@@ -795,7 +815,16 @@ def slack_create_main_menu(team_id: str, user_id: str) -> ResponseMessage:
             team_id,
             user_id
         )
-    url = f"{request.url_root }?team_id={team_id}&user_id={user_id}" 
+    # build call url and enforce https
+    url_root = request.url_root    
+    if url_root[:7] == "http://":
+        url_root = url_root.replace("http://", "https://")        
+    query = {
+        QUERY_TEAM_ID: team_id,
+        QUERY_USER_ID: user_id
+    }
+    url = url_root + "?" + urllib.parse.urlencode(query)
+
     if my_auth is None:                                    
         blocks = Blocks([
             Section("You have not yet created a token."),
