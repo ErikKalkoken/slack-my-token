@@ -205,6 +205,24 @@ class TestAuthorization(unittest.TestCase):
             2
         )
 
+    def test_get_team_name(self):            
+        # fetching a team name that exits
+        x = Authorization(
+            "TEST01", 
+            "U101", 
+            "team1",
+            "user1", 
+            Scopes("scope1"), 
+            "token1"
+        )        
+        x.store(self.connection)
+        team_name = Authorization.fetch_workspace_name(self.connection, "TEST01")
+        self.assertEqual(team_name, x.team_name)
+
+        # trying to fetch a team name that does not exist
+        team_name = Authorization.fetch_workspace_name(self.connection, "does not exit")
+        self.assertIsNone(team_name)
+
     def test_is_owner_true(self):
         x = Authorization(
             "TEST01", 

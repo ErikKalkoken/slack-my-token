@@ -21,13 +21,22 @@ SLACK_SIGNING_SECRET = os.environ["SLACK_SIGNING_SECRET"]
 FLASK_SECRET_KEY = os.environ["FLASK_SECRET_KEY"]
 
 # session constants
-SESSION_INSTALL_TYPE = "install_type"
-SESSION_STATE = "state"
 SESSION_TEAM_ID = "team_id"
 SESSION_USER_ID = "user_id"
+SESSION_STATE = "state"
+SESSION_INSTALL_TYPE = "install_type"
+SESSION_SCOPES_PRESELECTED = "scopes_preselected"
 
 INSTALL_TYPE_ADD = "add_scopes"
 INSTALL_TYPE_NEW = "new_install"
+
+# query constants
+QUERY_SCOPES = "scopes"
+QUERY_TEAM_ID = "team_id"
+QUERY_USER_ID = "user_id"
+QUERY_OAUTH_CODE = "code"
+QUERY_OAUTH_STATE = "state"
+QUERY_OAUTH_ERROR = "error"
 
 # Slack action IDs
 AID_BUTTON_NEW = "button_new"
@@ -428,7 +437,7 @@ class Authorization:
             cls, 
             connection: object, 
             team_id: str) -> int:
-        """return the number of stored authorizations for a team
+        """get the number of stored authorizations for a team
          
          Args:            
             connection: current postgres connection
@@ -461,6 +470,42 @@ class Authorization:
 
         return count
 
+    @classmethod
+    def fetch_workspace_name(
+            cls,             
+            connection: object,
+            team_id: str) -> any:
+        """get the name of a workspace
+         
+         Args:            
+            connection: current postgres connection
+            team_id: team ID of object to be fetched
+
+        Returns:
+            name of a workspace or None if not found
+        
+        Exceptions:
+            on any error
+        """
+        try:            
+            with connection.cursor() as cursor:
+                sql_query = """SELECT DISTINCT team_name
+                    FROM mytoken_auths 
+                    WHERE team_id = %s
+                    """                
+                cursor.execute(sql_query, (team_id,))
+                record = cursor.fetchone()
+                if (record == None):
+                    team_name = None
+                else:                
+                    team_name = record[0]
+            
+        except (Exception, psycopg2.Error) as error :
+            print("Error while fetching data from PostgreSQL", error)
+            raise
+
+        return team_name
+
 
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
@@ -477,53 +522,63 @@ def web_select_scopes():
     and preselect the commands scope to enable slash commands for the app
     If called with team_id and user_id will add scopes to existing ones    
     """
+        
+    session[SESSION_STATE] = secrets.token_urlsafe(20)
+    scopes_all = Scopes.create_from_file("scopes")
     
-    if "team_id" in request.args and "user_id" in request.args:
-        team_id = request.args["team_id"]
-        user_id = request.args["user_id"]
+    if QUERY_TEAM_ID in request.args and QUERY_USER_ID in request.args:
+        team_id = request.args[QUERY_TEAM_ID]
+        user_id = request.args[QUERY_USER_ID]
+        session[SESSION_TEAM_ID] = team_id
+        session[SESSION_USER_ID] = user_id
+        session[SESSION_INSTALL_TYPE] = INSTALL_TYPE_ADD
+        
         with psycopg2.connect(DATABASE_URL) as connection:
             my_auth = Authorization.fetchFromDb(
                 connection, 
                 team_id,
                 user_id
             )
-        if my_auth is None:
-            scopes_preselected = Scopes([Scopes.SCOPE_IDENTIFY])
-            team_name = None
-            user_name = None
+            if my_auth is None:
+                scopes_preselected = Scopes([Scopes.SCOPE_IDENTIFY])
+                team_name = Authorization.fetch_workspace_name(
+                    connection, 
+                    team_id
+                )
+                user_name = None
+            else:
+                scopes_preselected = my_auth.scopes
+                team_name = my_auth.team_name
+                user_name = my_auth.user_name            
+
+        if QUERY_SCOPES in request.args:
+            scopes_added = Scopes.create_from_string(request.args[QUERY_SCOPES])
         else:
-            scopes_preselected = my_auth.scopes
-            team_name = my_auth.team_name
-            user_name = my_auth.user_name
-            session["team_id"] = team_id
-            session["user_id"] = user_id
-    else:
-        scopes_preselected = Scopes(
-            [Scopes.SCOPE_IDENTIFY, Scopes.SCOPE_COMMANDS]
-        )
-        team_name = None
-        user_name = None
+            scopes_added = None
 
-    state = secrets.token_urlsafe(20)
-    session[SESSION_STATE] = state
-
-    session["scopes_preselected"] = scopes_preselected.get_string()
-    scopes_all = Scopes.create_from_file("scopes")        
-    scopes_remain = scopes_all.diff(scopes_preselected)
-    if team_name is not None:
-        session[SESSION_INSTALL_TYPE] = INSTALL_TYPE_ADD
+        session[SESSION_SCOPES_PRESELECTED] = scopes_preselected.get_string()
+        scopes_remain = scopes_all.diff(scopes_preselected)
+                    
         return render_template(
             'select.html.j2', 
             scopes_preselected=scopes_preselected.get_sorted(),
             scopes_remain=scopes_remain.get_sorted(),
+            scopes_added=scopes_added.get_sorted() if scopes_added is not None else None,
             team_name=team_name,
             user_name=user_name
         )
+
     else:
         session[SESSION_INSTALL_TYPE] = INSTALL_TYPE_NEW
+        scopes_preselected = Scopes(
+            [Scopes.SCOPE_IDENTIFY, Scopes.SCOPE_COMMANDS]
+        )        
+        team_name = None
+        user_name = None
+    
         oauth_url = (f'https://slack.com/oauth/authorize?scope={ scopes_preselected.get_string() }' 
             + f'&client_id={ SLACK_CLIENT_ID }'
-            + f'&state={ state }'
+            + f'&state={ session[SESSION_STATE] }'
             )
         return render_template(
             'install_start.html.j2',
@@ -533,34 +588,35 @@ def web_select_scopes():
 
 @app.route("/confirm", methods=["POST"])
 def web_confirm_scopes():    
-    if "scopes_preselected" not in session:
-        print("session incomplete")
+    if (SESSION_SCOPES_PRESELECTED not in session 
+            or SESSION_STATE not in session 
+            or SESSION_TEAM_ID not in session 
+            or SESSION_USER_ID not in session):
+        print("ERROR: session corrupt")
         abort(500)
-    
-    if "team_id" in session and "user_id" in session:
-        # load current auth to display name on web page
-        team_id = session["team_id"]
-        user_id = session["user_id"]        
-        with psycopg2.connect(DATABASE_URL) as connection:
-            my_auth = Authorization.fetchFromDb(
-                connection, 
-                team_id,
-                user_id
-            )
-    else:
-        my_auth = None
-    
-    if my_auth is not None:
-        team_name = my_auth.team_name
-        user_name = my_auth.user_name
-    else:
-        team_name = None
-        user_name = None
-    
-    scopes_preselected = Scopes.create_from_string(session["scopes_preselected"])
-    scopes_added = Scopes(request.form.getlist("scope"))    
+
+    # load current auth to display name on web page
+    team_id = session[SESSION_TEAM_ID]
+    user_id = session[SESSION_USER_ID]            
+    with psycopg2.connect(DATABASE_URL) as connection:
+        my_auth = Authorization.fetchFromDb(
+            connection, 
+            team_id,
+            user_id
+        )
+        if my_auth is not None:
+            team_name = my_auth.team_name
+            user_name = my_auth.user_name
+        else:
+            team_name = Authorization.fetch_workspace_name(connection, team_id)
+            user_name = None
+        
+    scopes_preselected = Scopes.create_from_string(
+        session[SESSION_SCOPES_PRESELECTED]
+    )
+    scopes_added = Scopes(request.form.getlist(QUERY_SCOPES))
     scopes_all = scopes_added + scopes_preselected
-       
+        
     state = session[SESSION_STATE]
 
     oauth_url = (f'https://slack.com/oauth/authorize?scope={ scopes_all.get_string() }' 
@@ -570,12 +626,16 @@ def web_confirm_scopes():
     if my_auth is not None:
         oauth_url += f"&team={ my_auth.team_id }"
     
-    restart_url = f"/?team_id={ team_id }&user_id={ user_id }"
+    restart_url = (f"/?{ QUERY_TEAM_ID }={ team_id }"
+        + f"&{ QUERY_USER_ID}={ user_id }"
+        + f"&{ QUERY_SCOPES}={ scopes_added.get_string() }")
     return render_template(
         'confirm.html.j2',         
         oauth_url=oauth_url,
         restart_url=restart_url,
-        scopes=scopes_all.get_sorted(),
+        scopes_preselected=scopes_preselected.get_sorted(),
+        scopes_added=scopes_added.get_sorted(),
+        scopes_added_count=scopes_added.get_count(),
         team_name=team_name,
         user_name=user_name        
     )
@@ -587,17 +647,18 @@ def web_finished_auth():
     
     error = None
     # verify the state            
-    if "error" in request.args:
-        error = request.args["error"]
-    elif (request.args["state"] != session[SESSION_STATE]):
+    if QUERY_OAUTH_ERROR in request.args:
+        error = request.args[QUERY_OAUTH_ERROR]
+    elif (QUERY_OAUTH_STATE not in request.args 
+            or (request.args[QUERY_OAUTH_STATE] != session[SESSION_STATE])):
         error = "Invalid state"
-    elif "code" not in request.args:
+    elif QUERY_OAUTH_CODE not in request.args:
         error = "no code returned"
     
     if error is None:
         try:                    
             # Retrieve the auth code from the request params        
-            auth_code = request.args['code']
+            auth_code = request.args[QUERY_OAUTH_CODE]
 
             # An empty string is a valid token for this request
             client = slack.WebClient(token="")
@@ -659,8 +720,9 @@ def web_finished_auth():
 def web_install_complete():
     """Show user installation result"""
 
-    if "team_id" not in session or "user_id" not in session:
-        raise RuntimeError("Session corrupt")
+    if SESSION_TEAM_ID not in session or SESSION_USER_ID not in session:
+        print("ERROR: Session corrupt")
+        abort(500)
 
     team_id = session[SESSION_TEAM_ID]
     user_id = session[SESSION_USER_ID]
@@ -701,7 +763,7 @@ def slack_slash_request():
                 body=request.get_data().decode("utf-8"),            
                 signature=request.headers["X-Slack-Signature"],
                 signing_secret=SLACK_SIGNING_SECRET):
-            print("Invalid Slack request")
+            print("ERROR: Invalid Slack request")
             abort(400)
 
         # get token for current workspace
@@ -798,7 +860,7 @@ def slack_interactive_request():
             body=request.get_data().decode("utf-8"),            
             signature=request.headers["X-Slack-Signature"],
             signing_secret=SLACK_SIGNING_SECRET):
-        print("Invalid Slack request")
+        print("ERROR: Invalid Slack request")
         abort(400)
 
     if "payload" in request.form:                            

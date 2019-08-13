@@ -2,20 +2,45 @@
 {% set page_title = 'Add Scopes (2/3)' %}
 
 {% block body %}
-
-    {% if team_name != None %}
-        <p><strong>{{ user_name }}</strong>, here are the scopes you selected.
-        Please click the button below to add them to your token for workspace <strong>{{ team_name }}</strong>.</p>
+    
+    {% if user_name != None %}
+        {% set user_text = "<strong>" + user_name +  "</strong>: " %}
     {% else %}
-        <p>Here are the scopes you selected. Please click the button below to create a token with these scopes.</p>
+        {% set user_text = '' %}
     {% endif %}
+
+    {% if scopes_added_count > 0 %}
+        <p>{{ user_text }} Here are the additional scopes you selected for workspace <strong>{{ team_name }}</strong>.<br>
+        Please verify you selected the right scopes and then click the button below to add them to your token.
+        </p>
+    {% else %}
+        <p>{{ user_text }} You have not selected any additional scopes for workspace <strong>{{ team_name }}</strong>.<br>
+        Please go back and select at least one scope to be added.</p>
+    {% endif %}
+    
+    <h2>Pre-selected scopes</h2>
+    <p>These scopes are already part of your current token:</p>
     <ul>
-        {% for scope in scopes %}
+        {% for scope in scopes_preselected %}
             <li>{{ scope }}</li>
         {% endfor %}
     </ul>
     
-    <a class="btn btn-outline-primary" href="{{ oauth_url }}">Add to Token</a>    
+    <h2>Scopes to be added</h2>
+    
+    <p>These are the scopes you want to add:</p>
+    <ul>
+        {% if scopes_added_count > 0 %}
+            {% for scope in scopes_added %}
+                <li>{{ scope }}</li>
+            {% endfor %}
+            {% else %}
+            <li>none</li>
+            {% endif %}
+    </ul>
+    {% if scopes_added_count > 0 %}
+        <a class="btn btn-outline-primary" href="{{ oauth_url }}">Add to Token</a> 
+    {% endif %}
     
     <a class="btn btn-outline-secondary" href="{{ restart_url }}">Back</a>
     
