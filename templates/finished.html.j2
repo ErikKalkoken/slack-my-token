@@ -7,7 +7,13 @@
     <p>The selected scopes have been successfully added to your token for workspace <strong>{{ team_name }}</strong></p>
     
     <p>Your token is: <code>{{ token }}</code></p>
-    <p>Your scopes are: <code>{{ scopes_str }}</code></p>
-    <p>Remember that you can always access this app with the command <code>/mytoken</code> on Slack</p>
+    <p>Your scopes are:</p>
+    <ul>
+        {% for scope in scopes %}
+            <li>{{ scope }}</li>
+        {% endfor %}
+    </ul>
+    <p>Remember that you can always see your token or add more scopes with the command <code>/mytoken</code> on Slack</p>
+    <p class="text-muted">If you are done you can just close this browser tab.</p>
     <a class="btn btn-outline-secondary" href="{{ restart_url }}">Add more scopes</a>
 {% endblock %}

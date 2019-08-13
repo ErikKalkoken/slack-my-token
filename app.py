@@ -153,7 +153,7 @@ class Scopes:
         scopes_diff = self._scopes.difference(scopes_second.scopes)
         return Scopes(scopes_diff)
 
-    def get_sorted(self) -> str:
+    def get_list(self) -> list:
         scopes_list = list(self._scopes)
         scopes_list.sort()
         return scopes_list
@@ -568,9 +568,9 @@ def web_select_scopes():
                     
         return render_template(
             'select.html.j2', 
-            scopes_preselected=scopes_preselected.get_sorted(),
-            scopes_remain=scopes_remain.get_sorted(),
-            scopes_added=scopes_added.get_sorted() if scopes_added is not None else None,
+            scopes_preselected=scopes_preselected.get_list(),
+            scopes_remain=scopes_remain.get_list(),
+            scopes_added=scopes_added.get_list() if scopes_added is not None else None,
             team_name=team_name,
             user_name=user_name
         )
@@ -630,7 +630,7 @@ def web_confirm_scopes():
 
     query = {            
         QUERY_OAUTH_CLIENT_ID: SLACK_CLIENT_ID,            
-        QUERY_OAUTH_SCOPE: scopes_all.get_string,
+        QUERY_OAUTH_SCOPE: scopes_all.get_string(),
         QUERY_OAUTH_STATE: session[SESSION_STATE],            
     }
     if my_auth is not None:
@@ -648,8 +648,8 @@ def web_confirm_scopes():
         'confirm.html.j2',         
         oauth_url=oauth_url,
         restart_url=restart_url,
-        scopes_preselected=scopes_preselected.get_sorted(),
-        scopes_added=scopes_added.get_sorted(),
+        scopes_preselected=scopes_preselected.get_list(),
+        scopes_added=scopes_added.get_list(),
         scopes_added_count=scopes_added.get_count(),
         team_name=team_name,
         user_name=user_name        
@@ -764,7 +764,7 @@ def web_install_complete():
         'finished.html.j2',                         
         team_name=my_auth.team_name,
         token=my_auth.token,
-        scopes_str=my_auth.scopes.get_string(),
+        scopes=my_auth.scopes.get_list(),
         restart_url=restart_url,
         isNewInstall=(session[SESSION_INSTALL_TYPE] == INSTALL_TYPE_NEW)
     )
@@ -843,8 +843,9 @@ def slack_create_main_menu(team_id: str, user_id: str) -> ResponseMessage:
 
     else :                          
         # create response                                            
-        text = (f"Your token is:\n>`{my_auth.token}`\n"
-            + f"with these scopes:\n>`{my_auth.scopes.get_string()}`\n")            
+        text = f"Your token is:\n>`{my_auth.token}`\nwith these scopes:\n"
+        for scope in my_auth.scopes.get_list():
+            text += f"• { scope }\n"
         actions = ActionsBlock([
             Button(
                 "Add Scopes", 

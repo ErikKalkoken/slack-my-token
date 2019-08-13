@@ -93,10 +93,10 @@ class TestScopes(unittest.TestCase):
         x3 = x1.diff(x2)
         self.assertCountEqual(x3.scopes, ["b", "d"])
 
-    def test_get_sorted(self):                        
+    def test_get_list(self):                        
         s = ["a", "d", "c", "b"]
         x = Scopes(s)        
-        self.assertEqual(x.get_sorted(), ["a", "b", "c", "d"])
+        self.assertEqual(x.get_list(), ["a", "b", "c", "d"])
 
 
     def test_eq(self):
