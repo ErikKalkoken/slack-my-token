@@ -825,9 +825,21 @@ def slack_create_main_menu(team_id: str, user_id: str) -> ResponseMessage:
     }
     url = url_root + "?" + urllib.parse.urlencode(query)
 
+    blocks = Blocks([
+        Section(
+            "Welcome to My Token! "
+            + "With this app you can create your personal Slack API token."
+        )
+    ])
     if my_auth is None:                                    
-        blocks = Blocks([
-            Section("You have not yet created a token."),
+        blocks.append(Section("You have not yet created a token."))
+        blocks.append(Section(
+            "Note that in order to create a token you may need to first "
+            + "optain permission for installing this app. "
+            + "Please contact an admin on your Slack workspace "
+            + "for any related questions."
+        ))
+        blocks.append(
             ActionsBlock([
                 Button(
                     "Create Token", 
@@ -839,8 +851,8 @@ def slack_create_main_menu(team_id: str, user_id: str) -> ResponseMessage:
                     AID_BUTTON_REFRESH
                 )
             ])
-        ])
-
+        )
+      
     else :                          
         # create response                                            
         text = f"Your token is:\n>`{my_auth.token}`\nwith these scopes:\n"
@@ -871,12 +883,8 @@ def slack_create_main_menu(team_id: str, user_id: str) -> ResponseMessage:
                 "Refresh", 
                 AID_BUTTON_REFRESH
         ))
-        blocks = Blocks([
-            Section(
-                text
-            ),
-            actions
-        ])
+        blocks.append(Section(text))
+        blocks.append(actions)
     
     return ResponseMessage(
         blocks = blocks
